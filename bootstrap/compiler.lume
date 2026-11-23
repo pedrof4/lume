@@ -1,0 +1,1816 @@
+// Compilador de bootstrap do Lume. O host lê um arquivo e recebe bytes.
+// Palavras do estado do compilador.
+// 0–4: bytes de fonte, limite, cursor, contagem e tabela de tokens.
+// 5–9: tabela de funções, contagem, locais visíveis, contagem e próximo slot WASM.
+// 10–15: fita IR, dados estáticos, corpos WASM, aridade máxima, main e retorno atual.
+// 17–23: tipos internados, flag de lvalue, tabela de closures, tipos nominais,
+//        construtores, substituições ativas e modelos de funções genéricas.
+// 24–30: unidades, ordem de módulos, armazenamento de fontes, traits, impls,
+//        vetor vazio de substituições e tipo Self ativo.
+
+fn get(p: i64, i: i64) -> i64 { return load(p + i * 8); }
+fn put(p: i64, i: i64, x: i64) { store(p + i * 8, x); }
+fn source(s: i64, i: i64) -> i64 {
+    if i < get(s, 1) { return load8(get(s, 0) + i); }
+    return 0;
+}
+fn token(s: i64, i: i64) -> i64 { return get(get(s, 4), 0) + i * 32; }
+fn kind(s: i64, i: i64) -> i64 { return get(token(s, i), 0); }
+fn here(s: i64) -> i64 { return kind(s, get(s, 2)); }
+fn bump(s: i64) -> i64 {
+    let i = get(s, 2);
+    if kind(s, i) != 0 { put(s, 2, i + 1); }
+    return i;
+}
+fn eat(s: i64, k: i64) -> bool {
+    if here(s) == k { bump(s); return true; }
+    return false;
+}
+fn word(s: i64, t: i64, name: str) -> bool {
+    let p = token(s, t);
+    if get(p, 0) != 300 || get(p, 2) != len(name) { return false; }
+    let start = get(p, 1);
+    let mut i = 0;
+    while i < len(name) {
+        if source(s, start + i) != name[i] { return false; }
+        i = i + 1;
+    }
+    return true;
+}
+fn same_name(s: i64, a: i64, b: i64) -> bool {
+    let p = token(s, a);
+    let q = token(s, b);
+    let n = get(p, 2);
+    if n != get(q, 2) { return false; }
+    if get(p, 3) != get(q, 3) { return false; }
+    let mut i = 0;
+    while i < n {
+        if source(s, get(p, 1) + i) != source(s, get(q, 1) + i) { return false; }
+        i = i + 1;
+    }
+    return true;
+}
+fn keyword(s: i64, n: str) -> bool {
+    if word(s, get(s, 2), n) { bump(s); return true; }
+    return false;
+}
+fn report(s: i64, at: i64, message: str) {
+    let units = get(s, 24);
+    let mut index = 0;
+    let mut start = 0;
+    let mut limit = get(s, 1);
+    let mut title = "<entrada>";
+    while index < get(units, 1) {
+        let u = get(get(units, 0), index);
+        if get(u, 1) <= at && at <= get(u, 2) {
+            start = get(u, 1); limit = get(u, 2); title = str_from_raw(get(u, 6));
+        }
+        index = index + 1;
+    }
+    let mut line = 1;
+    let mut column = 1;
+    let mut i = start;
+    let mut line_start = start;
+    while i < at {
+        let c = source(s, i);
+        if c == 10 { line = line + 1; column = 1; line_start = i + 1; }
+        else if c < 128 || c >= 192 { column = column + 1; }
+        i = i + 1;
+    }
+    let mut line_end = at;
+    while line_end < limit && source(s, line_end) != 10 && source(s, line_end) != 13 { line_end = line_end + 1; }
+    let snippet = alloc(8 + line_end - line_start);
+    put(snippet, 0, line_end - line_start);
+    i = line_start;
+    while i < line_end { store8(snippet + 8 + i - line_start, source(s, i)); i = i + 1; }
+    write(title); write(":"); decimal_write(line); write(":"); decimal_write(column);
+    write(": erro: "); write(message); write("\n  | "); write(str_from_raw(snippet)); write("\n  | ");
+    i = 1; while i < column { write(" "); i = i + 1; }
+    write("^\n"); abort(1);
+}
+fn decimal_write(n: i64) {
+    let p = alloc(32);
+    let mut x = n;
+    let mut i = 0;
+    while x > 0 { store8(p + 31 - i, x % 10 + 48); x = x / 10; i = i + 1; }
+    if i == 0 { write("0"); return; }
+    store(p + 24 - i, i); write(str_from_raw(p + 24 - i));
+}
+fn error(s: i64, message: str) { report(s, get(token(s, get(s, 2)), 1), message); }
+fn need(s: i64, k: i64) {
+    if !eat(s, k) { error(s, "token inesperado"); }
+}
+fn name_token(s: i64) -> i64 {
+    let i = get(s, 2);
+    need(s, 300);
+    return i;
+}
+fn add_token(s: i64, k: i64, start: i64, n: i64, value: i64) {
+    let i = get(s, 3);
+    let v = get(s, 4); reserve_bytes(v, 1); put(v, 1, i + 1);
+    let p = token(s, i);
+    put(p, 0, k); put(p, 1, start); put(p, 2, n); put(p, 3, value);
+    put(s, 3, i + 1);
+}
+fn digit(c: i64) -> bool { return c >= 48 && c <= 57; }
+fn letter(c: i64) -> bool {
+    return c == 95 || c >= 65 && c <= 90 || c >= 97 && c <= 122 || c >= 128;
+}
+fn punctuation(c: i64, d: i64) -> i64 {
+    if c == 45 && d == 62 { return 256; }
+    if c == 61 && d == 61 { return 257; }
+    if c == 33 && d == 61 { return 258; }
+    if c == 60 && d == 61 { return 259; }
+    if c == 62 && d == 61 { return 260; }
+    if c == 38 && d == 38 { return 261; }
+    if c == 124 && d == 124 { return 262; }
+    if c == 61 && d == 62 { return 263; }
+    if c == 46 && d == 46 { return 264; }
+    if c == 58 && d == 58 { return 265; }
+    if c == 40 || c == 41 || c == 123 || c == 125 || c == 44 || c == 59 || c == 58 || c == 61 || c == 43 || c == 45 || c == 42 || c == 47 || c == 37 || c == 60 || c == 62 || c == 33 || c == 91 || c == 93 || c == 46 || c == 124 || c == 63 { return c; }
+    return 0;
+}
+fn escape(c: i64) -> i64 {
+    if c == 110 { return 10; }
+    if c == 114 { return 13; }
+    if c == 116 { return 9; }
+    if c == 48 { return 0; }
+    if c == 34 || c == 39 || c == 92 { return c; }
+    return -1;
+}
+fn utf8_scalar(s: i64, start: i64, count: i64) -> i64 {
+    let lead = source(s, start);
+    if count == 1 && lead < 128 { return lead; }
+    let mut n = 0;
+    if count == 2 && lead >= 194 && lead <= 223 { n = lead - 192; }
+    else if count == 3 && lead >= 224 && lead <= 239 { n = lead - 224; }
+    else if count == 4 && lead >= 240 && lead <= 244 { n = lead - 240; }
+    else { report(s, start, "um char contém um escalar Unicode"); }
+    let mut i = 1;
+    while i < count {
+        let c = source(s, start + i);
+        if c < 128 || c >= 192 { report(s, start, "UTF-8 inválido"); }
+        n = n * 64 + c - 128; i = i + 1;
+    }
+    if count == 3 && n < 2048 || count == 4 && n < 65536 || n >= 55296 && n <= 57343 || n >= 1114112 {
+        report(s, start, "escalar Unicode inválido");
+    }
+    return n;
+}
+fn decimal_bits(numerator: i64, denominator: i64) -> i64 {
+    if numerator == 0 { return 0; }
+    let mut p = numerator;
+    let mut q = denominator;
+    let mut exponent = 1023;
+    while p < q { p = p * 2; exponent = exponent - 1; }
+    while p >= q * 2 { q = q * 2; exponent = exponent + 1; }
+    p = p - q;
+    let mut i = 0;
+    let mut significand = 0;
+    while i < 52 {
+        p = p * 2; significand = significand * 2;
+        if p >= q { p = p - q; significand = significand + 1; }
+        i = i + 1;
+    }
+    if p * 2 > q || p * 2 == q && significand % 2 == 1 { significand = significand + 1; }
+    return exponent * 4503599627370496 + significand;
+}
+fn lex(s: i64, start_at: i64) {
+    let end = get(s, 1);
+    let mut i = start_at;
+    while i < end {
+        let first = source(s, i);
+        let start = i;
+        i = i + 1;
+        if first == 32 || first == 10 || first == 13 || first == 9 { }
+        else if first == 47 && source(s, i) == 47 {
+            while i < end && source(s, i) != 10 { i = i + 1; }
+        } else if letter(first) {
+            let mut hash = first;
+            while letter(source(s, i)) || digit(source(s, i)) {
+                hash = hash * 131 + source(s, i);
+                i = i + 1;
+            }
+            add_token(s, 300, start, i - start, hash);
+        } else if digit(first) {
+            let mut n = first - 48;
+            while digit(source(s, i)) || source(s, i) == 95 {
+                let d = source(s, i);
+                if d != 95 {
+                    if n > (9223372036854775807 - (d - 48)) / 10 { report(s, start, "inteiro fora do intervalo"); }
+                    n = n * 10 + d - 48;
+                }
+                i = i + 1;
+            }
+            if source(s, i) == 46 && digit(source(s, i + 1)) {
+                let mut denominator = 1;
+                i = i + 1;
+                while digit(source(s, i)) || source(s, i) == 95 {
+                    let d = source(s, i);
+                    if d != 95 {
+                        if n >= 100000000000000000 || denominator >= 100000000000000000 {
+                            report(s, start, "fração excede a precisão decimal do bootstrap");
+                        }
+                        denominator = denominator * 10;
+                        n = n * 10 + d - 48;
+                    }
+                    i = i + 1;
+                }
+                add_token(s, 304, start, i - start, decimal_bits(n, denominator));
+            } else { add_token(s, 301, start, i - start, n); }
+        } else if first == 34 || first == 39 {
+            let mut size = 0;
+            let mut last = 0;
+            while i < end && source(s, i) != first && source(s, i) != 10 && source(s, i) != 13 {
+                last = source(s, i);
+                if last == 92 {
+                    i = i + 1; last = escape(source(s, i));
+                    if last < 0 { report(s, i, "escape desconhecido"); }
+                }
+                size = size + 1; i = i + 1;
+            }
+            if source(s, i) != first { report(s, start, "literal sem fechamento"); }
+            i = i + 1;
+            if first == 39 {
+                if size == 1 { add_token(s, 303, start, i - start, last); }
+                else { add_token(s, 303, start, i - start, utf8_scalar(s, start + 1, i - start - 2)); }
+            } else { add_token(s, 302, start, i - start, size); }
+        } else {
+            let code = punctuation(first, source(s, i));
+            if code == 0 { report(s, start, "caractere inesperado"); }
+            if code >= 256 { i = i + 1; }
+            add_token(s, code, start, i - start, 0);
+        }
+    }
+    add_token(s, 0, end, 0, 0);
+}
+
+// A fita usa pares de palavras: largura (0: opcode, 1: ULEB, 2: SLEB) e operando.
+fn vec(width: i64) -> i64 {
+    let p = alloc(32);
+    put(p, 0, alloc(64 * width)); put(p, 1, 0); put(p, 2, 64); put(p, 3, width);
+    return p;
+}
+fn reserve_bytes(v: i64, n: i64) {
+    let used = get(v, 1);
+    let cap = get(v, 2);
+    if used + n <= cap { return; }
+    let width = get(v, 3);
+    let old = get(v, 0);
+    let mut next = cap * 2;
+    while used + n > next { next = next * 2; }
+    let p = alloc(next * width);
+    let mut i = 0;
+    while i < used * width {
+        store8(p + i, load8(old + i)); i = i + 1;
+    }
+    put(v, 0, p); put(v, 2, next);
+}
+fn byte(v: i64, b: i64) {
+    reserve_bytes(v, 1); let n = get(v, 1);
+    store8(get(v, 0) + n, b); put(v, 1, n + 1);
+}
+fn event(s: i64, width: i64, val: i64) {
+    let v = get(s, 10);
+    reserve_bytes(v, 1); let n = get(v, 1);
+    let p = get(v, 0) + n * 16;
+    put(p, 0, width); put(p, 1, val); put(v, 1, n + 1);
+}
+fn op(s: i64, n: i64) { event(s, 0, n); }
+fn imm(s: i64, n: i64, v: i64) { op(s, n); event(s, 1, v); }
+fn number(s: i64, v: i64) { op(s, 66); event(s, 2, v); }
+fn uleb(v: i64, n: i64) {
+    let mut x = n;
+    while x >= 128 { byte(v, x % 128 + 128); x = x / 128; }
+    byte(v, x);
+}
+fn sleb(v: i64, n: i64) {
+    let mut x = n;
+    let mut done = false;
+    while !done {
+        let mut low = x % 128;
+        x = x / 128;
+        if low < 0 { low = low + 128; x = x - 1; }
+        done = x == 0 && low < 64 || x == -1 && low >= 64;
+        if done { byte(v, low); } else { byte(v, low + 128); }
+    }
+}
+fn append(v: i64, buffer: i64) {
+    let n = get(buffer, 1);
+    reserve_bytes(v, n);
+    let to = get(v, 0) + get(v, 1);
+    let from = get(buffer, 0);
+    let mut i = 0;
+    while i < n { store8(to + i, load8(from + i)); i = i + 1; }
+    put(v, 1, get(v, 1) + n);
+}
+fn quoted(v: i64, n: str) {
+    let mut i = 0;
+    uleb(v, len(n));
+    while i < len(n) { byte(v, n[i]); i = i + 1; }
+}
+fn hex_digit(n: i64) -> i64 {
+    if n <= 57 { return n - 48; }
+    return n - 87;
+}
+fn hex(v: i64, text: str) {
+    let mut i = 0;
+    while i < len(text) { byte(v, hex_digit(text[i]) * 16 + hex_digit(text[i + 1])); i = i + 2; }
+}
+fn finish_section(wasm: i64, section: i64, id: i64) {
+    byte(wasm, id); uleb(wasm, get(section, 1)); append(wasm, section); put(section, 1, 0);
+}
+fn str_literal(s: i64, t: i64) -> i64 {
+    let p = token(s, t);
+    let length = get(p, 3);
+    let data = get(s, 11);
+    let offset = get(data, 1);
+    let mut bits = length;
+    let mut i = 0;
+    while i < 8 { byte(data, bits % 256); bits = bits / 256; i = i + 1; }
+    i = get(p, 1) + 1;
+    let end = get(p, 1) + get(p, 2) - 1;
+    while i < end {
+        let mut c = source(s, i);
+        if c == 92 { i = i + 1; c = escape(source(s, i)); }
+        byte(data, c); i = i + 1;
+    }
+    while get(data, 1) % 8 != 0 { byte(data, 0); }
+    return 1024 + offset;
+}
+
+fn fresh_type(s: i64, k: i64, a: i64, b: i64) -> i64 {
+    let pool = get(s, 17);
+    let mut i = 0;
+    while i < get(pool, 1) {
+        let t = get(get(pool, 0), i);
+        if get(t, 0) == k && get(t, 2) == b {
+            if (k == 10 || k == 11) && same_words(get(t, 1), a) || k != 10 && k != 11 && get(t, 1) == a { return t; }
+        }
+        i = i + 1;
+    }
+    let p = alloc(24);
+    put(p, 0, k); put(p, 1, a); put(p, 2, b);
+    reserve_bytes(pool, 1); put(get(pool, 0), i, p); put(pool, 1, i + 1);
+    return p;
+}
+fn type_kind(t: i64) -> i64 {
+    if t < 8 { return t; }
+    return get(t, 0);
+}
+fn type_name(s: i64) -> i64 {
+    let t = name_token(s);
+    if word(s, t, "i64") { return 1; }
+    if word(s, t, "bool") { return 2; }
+    if word(s, t, "str") { return 3; }
+    if word(s, t, "unit") { return 4; }
+    if word(s, t, "char") { return 5; }
+    if word(s, t, "i32") { return 6; }
+    if word(s, t, "f64") { return 7; }
+    if word(s, t, "Self") && get(s, 30) != 0 { return get(s, 30); }
+    if word(s, t, "fn") {
+        let ts = vec(8);
+        need(s, 40);
+        while !eat(s, 41) {
+            push_word(ts, type_name(s));
+            if here(s) != 41 { need(s, 44); }
+        }
+        need(s, 256);
+        return fresh_type(s, 10, ts, type_name(s));
+    }
+    if word(s, t, "Array") || word(s, t, "Slice") {
+        need(s, 60); let element = type_name(s); need(s, 62);
+        if word(s, t, "Array") { return fresh_type(s, 8, element, 0); }
+        return fresh_type(s, 9, element, 0);
+    }
+    let variables = get(s, 22);
+    let mut i = 0;
+    while i < get(variables, 1) {
+        let item = get(variables, 0) + i * 24;
+        if same_name(s, t, get(item, 0)) { return get(item, 1); }
+        i = i + 1;
+    }
+    let def = find_def(s, t);
+    if def != 0 {
+        let args = vec(8);
+        if eat(s, 60) {
+            while !eat(s, 62) {
+                push_word(args, type_name(s));
+                if here(s) != 62 { need(s, 44); }
+            }
+        }
+        if get(args, 1) != get(get(def, 3), 1) { error(s, "aridade incorreta do tipo"); }
+        return fresh_type(s, 11, args, def);
+    }
+    error(s, "tipo desconhecido"); return 0;
+}
+fn func(s: i64, i: i64) -> i64 { return get(get(s, 5), 0) + 72 * i; }
+fn builtin(s: i64, t: i64) -> i64 {
+    if word(s, t, "print") { return 0; }
+    if word(s, t, "write") { return 1; }
+    if word(s, t, "input_len") { return 2; }
+    if word(s, t, "input_byte") { return 3; }
+    if word(s, t, "output_byte") { return 4; }
+    if word(s, t, "abort") { return 5; }
+    if word(s, t, "print_float") { return 6; }
+    if word(s, t, "print_char") { return 7; }
+    if word(s, t, "file_open") { return 8; }
+    if word(s, t, "file_byte") { return 9; }
+    if word(s, t, "alloc") { return 10; }
+    if word(s, t, "load") { return 11; }
+    if word(s, t, "store") { return 12; }
+    if word(s, t, "load8") { return 13; }
+    if word(s, t, "store8") { return 14; }
+    return -1;
+}
+fn function_id(s: i64, t: i64) -> i64 {
+    let id = builtin(s, t);
+    if id >= 0 { return id; }
+    let mut i = 0;
+    while i < get(s, 6) {
+        let name = get(func(s, i), 0);
+        if name >= 0 && same_name(s, t, name) { return 15 + i; }
+        i = i + 1;
+    }
+    let templates = get(s, 23);
+    i = 0;
+    while i < get(templates, 1) {
+        if same_name(s, t, get(get(get(templates, 0), i), 0)) { return -2 - i; }
+        i = i + 1;
+    }
+    return -1;
+}
+fn arity(s: i64, id: i64) -> i64 {
+    if id >= 15 { return get(func(s, id - 15), 2); }
+    if id == 2 { return 0; }
+    if id == 8 || id == 9 || id == 12 || id == 14 { return 2; }
+    return 1;
+}
+fn parameter(s: i64, id: i64, i: i64) -> i64 {
+    if id >= 15 { return get(get(func(s, id - 15), 4), i * 2 + 1); }
+    if id == 1 { return 3; }
+    if id == 6 { return 7; }
+    if id == 7 { return 5; }
+    if id == 8 && i == 1 { return 3; }
+    return 1;
+}
+fn result_type(s: i64, id: i64) -> i64 {
+    if id >= 15 { return get(func(s, id - 15), 3); }
+    if id == 0 || id == 1 || id == 4 || id == 5 || id == 6 || id == 7 || id == 12 || id == 14 { return 4; }
+    return 1;
+}
+fn signature_parameters(s: i64) -> i64 {
+    need(s, 40);
+    let params = vec(16);
+    while !eat(s, 41) {
+        let name = name_token(s); need(s, 58);
+        push_parameter(params, name, type_name(s));
+        if here(s) != 41 { need(s, 44); }
+    }
+    return params;
+}
+fn declarations(s: i64) {
+    while here(s) != 0 {
+        if keyword(s, "struct") { data_definition(s, false); }
+        else if keyword(s, "enum") { data_definition(s, true); }
+        else if keyword(s, "trait") { name_token(s); skip_block(s); }
+        else if keyword(s, "impl") { implementation(s); }
+        else if keyword(s, "import") { need(s, 302); need(s, 59); }
+        else {
+            if !keyword(s, "fn") { error(s, "esperada declaração"); }
+            let name = name_token(s);
+            if function_id(s, name) != -1 || find_def(s, name) != 0 || find_constructor(s, name) != 0 || find_trait_by_method(s, name) != 0 || word(s, name, "len") || word(s, name, "array") || word(s, name, "as_i32") || word(s, name, "as_i64") || word(s, name, "as_f64") || word(s, name, "codepoint") || word(s, name, "str_from_raw") {
+                error(s, "função duplicada ou reservada");
+            }
+            let gs = generic_params(s);
+            put(s, 22, gs);
+            let args = signature_parameters(s);
+            let mut ret = 4;
+            if eat(s, 256) { ret = type_name(s); }
+            let body = get(s, 2);
+            skip_block(s);
+            let end = get(s, 2);
+            if get(gs, 1) == 0 {
+                let id = add_function(s, name, body, args, ret, end, 0);
+                if word(s, name, "main") {
+                    if get(args, 1) != 0 || ret != 4 && ret != 1 { error(s, "assinatura inválida de main"); }
+                    put(s, 14, id);
+                }
+            } else {
+                if word(s, name, "main") { error(s, "main não pode ser genérica"); }
+                let template = alloc(56);
+                put(template, 0, name); put(template, 1, body); put(template, 2, args);
+                put(template, 3, ret); put(template, 4, end); put(template, 5, gs); put(template, 6, vec(16));
+                push_word(get(s, 23), template);
+            }
+        }
+        put(s, 22, get(s, 29));
+    }
+}
+fn local(s: i64, i: i64) -> i64 { return get(get(s, 7), 0) + i * 40; }
+fn reserve_local(s: i64, index: i64) {
+    let v = get(s, 7);
+    if index >= get(v, 1) { reserve_bytes(v, 1); put(v, 1, index + 1); }
+}
+fn lookup(s: i64, name: i64) -> i64 {
+    let mut i = get(s, 8);
+    while i > 0 {
+        i = i - 1;
+        let p = local(s, i);
+        if same_name(s, name, get(p, 0)) { return p; }
+    }
+    return 0;
+}
+fn temporary(s: i64) -> i64 {
+    let i = get(s, 9); put(s, 9, i + 1); return i;
+}
+fn bind(s: i64, name: i64, t: i64, mutable: bool, scope: i64) -> i64 {
+    let found = lookup(s, name);
+    if found != 0 && get(found, 4) == scope { error(s, "nome duplicado no escopo"); }
+    let i = get(s, 8); reserve_local(s, i);
+    let p = local(s, i);
+    let slot = temporary(s);
+    put(p, 0, name); put(p, 1, t); put(p, 2, slot); put(p, 3, 0); put(p, 4, scope);
+    if mutable { put(p, 3, 1); }
+    put(s, 8, i + 1);
+    return slot;
+}
+fn check_type(s: i64, actual: i64, expected: i64) {
+    if expected != 0 && expected != actual { error(s, "tipo incompatível"); }
+}
+fn precedence(k: i64) -> i64 {
+    if k == 262 { return 1; }
+    if k == 261 { return 2; }
+    if k == 257 || k == 258 { return 3; }
+    if k == 60 || k == 62 || k == 259 || k == 260 { return 4; }
+    if k == 43 || k == 45 { return 5; }
+    if k == 42 || k == 47 || k == 37 { return 6; }
+    return 0;
+}
+fn arithmetic(k: i64) -> i64 {
+    if k == 43 { return 124; }
+    if k == 45 { return 125; }
+    if k == 42 { return 126; }
+    if k == 47 { return 127; }
+    return 129;
+}
+fn comparison(k: i64) -> i64 {
+    if k == 257 { return 81; }
+    if k == 258 { return 82; }
+    if k == 60 { return 83; }
+    if k == 62 { return 85; }
+    if k == 259 { return 87; }
+    return 89;
+}
+fn call_expr(s: i64, t: i64, explicit: i64, expected: i64) -> i64 {
+    let constructor = find_constructor(s, t);
+    if constructor != 0 { return construct(s, constructor, explicit, expected, true); }
+    let candidate = function_id(s, t);
+    if candidate < -1 { return generic_call(s, candidate, explicit, expected); }
+    if get(explicit, 1) != 0 && !word(s, t, "array") { error(s, "argumentos de tipo inesperados"); }
+    if word(s, t, "len") {
+        let t = type_kind(expression(s, 1, 0));
+        if t != 3 && t != 8 && t != 9 { error(s, "len exige uma sequência"); }
+        need(s, 41); imm(s, 16, 11); return 1;
+    }
+    if word(s, t, "codepoint") {
+        expression(s, 1, 5); need(s, 41); return 1;
+    }
+    if word(s, t, "str_from_raw") {
+        expression(s, 1, 1); need(s, 41); return 3;
+    }
+    if word(s, t, "as_i32") || word(s, t, "as_i64") || word(s, t, "as_f64") {
+        let x = expression(s, 1, 0); need(s, 41);
+        if x != 1 && x != 6 && x != 7 { error(s, "conversão exige número"); }
+        if word(s, t, "as_f64") {
+            if x != 7 { op(s, 185); op(s, 189); }
+            return 7;
+        }
+        if x == 7 { op(s, 191); op(s, 176); }
+        if word(s, t, "as_i32") { op(s, 167); op(s, 172); return 6; }
+        return 1;
+    }
+    if word(s, t, "array") {
+        let mut fill = 0;
+        if type_kind(expected) == 8 { fill = get(expected, 1); }
+        if get(explicit, 1) > 1 { error(s, "array recebe um tipo"); }
+        if get(explicit, 1) == 1 { fill = get(get(explicit, 0), 0); }
+        return new_array(s, fill);
+    }
+    let id = candidate;
+    if id < 0 { return method_call(s, t); }
+    let count = arity(s, id);
+    let mut i = 0;
+    while i < count {
+        if i != 0 { need(s, 44); }
+        expression(s, 1, parameter(s, id, i));
+        i = i + 1;
+    }
+    if count > 0 { eat(s, 44); }
+    need(s, 41); imm(s, 16, id);
+    return result_type(s, id);
+}
+fn primary(s: i64, expected: i64) -> i64 {
+    let k = here(s);
+    let t = bump(s);
+    if k == 301 {
+        let value = get(token(s, t), 3);
+        if expected == 6 {
+            if value > 2147483647 { error(s, "literal fora do intervalo de i32"); }
+            number(s, value); return 6;
+        }
+        number(s, value); return 1;
+    }
+    if k == 302 { number(s, str_literal(s, t)); return 3; }
+    if k == 304 { number(s, get(token(s, t), 3)); return 7; }
+    if k == 91 { return array_literal(s, expected); }
+    if k == 124 || k == 262 { return closure_expression(s, k == 262); }
+    if k == 303 { number(s, get(token(s, t), 3)); return 5; }
+    if k == 40 { let x = expression(s, 1, expected); need(s, 41); return x; }
+    if k == 33 { expression(s, 7, 2); op(s, 80); op(s, 173); return 2; }
+    if k == 45 {
+        let x = expression(s, 7, expected);
+        if x == 7 { op(s, 191); op(s, 154); op(s, 189); return 7; }
+        if x != 1 && x != 6 { error(s, "negação exige número"); }
+        number(s, -1); op(s, 126); if x == 6 { op(s, 167); op(s, 172); }
+        return x;
+    }
+    if k == 300 {
+        if word(s, t, "true") { number(s, 1); return 2; }
+        if word(s, t, "false") { number(s, 0); return 2; }
+        if word(s, t, "match") { return match_expression(s, expected); }
+        let p = lookup(s, t);
+        if p != 0 { imm(s, 32, get(p, 2)); return get(p, 1); }
+        if here(s) == 40 || here(s) == 265 {
+            let explicit = vec(8);
+            if eat(s, 265) {
+                need(s, 60);
+                while !eat(s, 62) {
+                    push_word(explicit, type_name(s));
+                    if here(s) != 62 { need(s, 44); }
+                }
+            }
+            need(s, 40); return call_expr(s, t, explicit, expected);
+        }
+        let constructor = find_constructor(s, t);
+        if constructor != 0 { return construct(s, constructor, vec(8), expected, false); }
+        let id = function_id(s, t);
+        if id >= 15 { return named_function_value(s, id); }
+        error(s, "nome desconhecido");
+    }
+    error(s, "esperada uma expressão"); return 0;
+}
+fn expression(s: i64, minimum: i64, expected: i64) -> i64 {
+    let mut t = primary(s, expression_hint(s, minimum, expected));
+    let mut place = false;
+    while here(s) == 91 || here(s) == 40 || here(s) == 46 || here(s) == 63 {
+        if eat(s, 46) {
+            t = field_access(s, t); place = true;
+        } else if eat(s, 63) {
+            t = propagate(s, t); place = false;
+        } else if eat(s, 40) {
+            t = indirect(s, t); place = false;
+        } else {
+        need(s, 91);
+        let k = type_kind(t);
+        if k != 3 && k != 8 && k != 9 { error(s, "indexação exige uma sequência"); }
+        let base = temporary(s);
+        let index = temporary(s);
+        imm(s, 33, base); expression(s, 1, 1); imm(s, 33, index);
+        if eat(s, 264) {
+            if k == 3 { error(s, "str não forma slice"); }
+            let end = temporary(s);
+            expression(s, 1, 1); imm(s, 33, end);
+            t = make_slice(s, t, base, index, end);
+            place = false;
+        } else {
+            imm(s, 32, index); imm(s, 32, base); imm(s, 16, 11); guard(s, 90);
+            sequence_base(s, k, base);
+            imm(s, 32, index);
+            if k != 3 { number(s, 8); op(s, 126); }
+            op(s, 124);
+            if k == 3 { imm(s, 16, 13); t = 1; place = false; }
+            else { imm(s, 16, 11); t = get(t, 1); place = true; }
+        }
+        need(s, 93);
+        }
+    }
+    let mut k = here(s);
+    let mut bp = precedence(k);
+    while bp >= minimum {
+        bump(s); place = false;
+        if bp <= 2 {
+            check_type(s, t, 2);
+            op(s, 167); op(s, 4); op(s, 126);
+            if bp == 1 { number(s, 1); op(s, 5); }
+            expression(s, bp + 1, 2);
+            if bp == 2 { op(s, 5); number(s, 0); }
+            op(s, 11); t = 2;
+        } else if bp <= 4 {
+            if t == 3 && bp == 3 { expression(s, bp + 1, 3); string_compare(s, k == 258); }
+            else {
+                if t != 1 && t != 6 && t != 5 && t != 7 && !(t == 2 && bp == 3) { error(s, "comparação inválida"); }
+                if t == 7 { op(s, 191); }
+                expression(s, bp + 1, t);
+                if t == 7 { op(s, 191); op(s, float_comparison(k)); }
+                else { op(s, comparison(k)); }
+                op(s, 173);
+            }
+            t = 2;
+        } else {
+            if t != 1 && t != 6 && t != 7 { error(s, "operação exige número"); }
+            if t == 7 {
+                if k == 37 { error(s, "resto exige inteiro"); }
+                op(s, 191); expression(s, bp + 1, 7); op(s, 191); op(s, float_arithmetic(k)); op(s, 189);
+            } else {
+                expression(s, bp + 1, t); op(s, arithmetic(k));
+                if t == 6 { op(s, 167); op(s, 172); }
+            }
+        }
+        k = here(s); bp = precedence(k);
+    }
+    put(s, 18, 0); if place { put(s, 18, 1); }
+    check_type(s, t, expected); return t;
+}
+
+fn block(s: i64, scope: i64, depth: i64) -> bool {
+    need(s, 123);
+    let previous = get(s, 8);
+    let mut returns = false;
+    while !eat(s, 125) {
+        if statement(s, scope, depth) { returns = true; }
+    }
+    put(s, 8, previous);
+    return returns;
+}
+fn statement(s: i64, scope: i64, depth: i64) -> bool {
+    if keyword(s, "let") {
+        let mutable = keyword(s, "mut");
+        let name = name_token(s);
+        let mut expected = 0;
+        if eat(s, 58) { expected = type_name(s); }
+        need(s, 61); let t = expression(s, 1, expected); need(s, 59);
+        imm(s, 33, bind(s, name, t, mutable, scope)); return false;
+    }
+    if keyword(s, "return") {
+        let ret = get(s, 15);
+        if eat(s, 59) { check_type(s, ret, 4); number(s, 0); }
+        else { expression(s, 1, ret); need(s, 59); }
+        op(s, 15); return true;
+    }
+    if keyword(s, "while") {
+        op(s, 2); op(s, 64); op(s, 3); op(s, 64);
+        expression(s, 1, 2); op(s, 80); imm(s, 13, 1);
+        block(s, scope + 1, 0); imm(s, 12, 0); op(s, 11); op(s, 11); return false;
+    }
+    if keyword(s, "if") {
+        expression(s, 1, 2); op(s, 167); op(s, 4); op(s, 64);
+        let mut nested = depth;
+        if depth >= 0 { nested = depth + 1; }
+        let a = block(s, scope + 1, nested);
+        let mut b = false;
+        if keyword(s, "else") {
+            op(s, 5);
+            if here(s) == 123 { b = block(s, scope + 1, nested); }
+            else {
+                if !word(s, get(s, 2), "if") { error(s, "esperado bloco ou if"); }
+                b = statement(s, scope, nested);
+            }
+        }
+        op(s, 11); return a && b;
+    }
+    let stop = keyword(s, "break");
+    if stop || keyword(s, "continue") {
+        if depth < 0 { error(s, "controle fora de laço"); }
+        let mut target = depth;
+        if stop { target = target + 1; }
+        need(s, 59); imm(s, 12, target); return false;
+    }
+    let pos = get(s, 2);
+    if here(s) == 300 && kind(s, pos + 1) == 61 {
+        let p = lookup(s, pos);
+        if p == 0 { error(s, "nome desconhecido"); }
+        if get(p, 3) == 0 { error(s, "atribuição a variável imutável"); }
+        bump(s); bump(s); expression(s, 1, get(p, 1)); need(s, 59); imm(s, 33, get(p, 2));
+    } else {
+        let t = expression(s, 1, 0);
+        if eat(s, 61) {
+            if get(s, 18) == 0 { error(s, "alvo inválido de atribuição"); }
+            let tape = get(s, 10);
+            put(tape, 1, get(tape, 1) - 2);
+            expression(s, 1, t); imm(s, 16, 12);
+        }
+        need(s, 59); op(s, 26);
+    }
+    return false;
+}
+
+// Blocos binários das cinco primitivas da arena. Cada bloco tem tamanho LEB128.
+fn runtime(code: i64) {
+    hex(code, "5e01027e23002101200042005320004280808080085445720440000b200120007c42077c427883220242808080800854450440000b200242ffff037c421088a73f006bac220042005504402000a74000417f460440000b0b2002240020010b");
+    hex(code, "08002000a72903000b");
+    hex(code, "0c002000a7200137030042000b");
+    hex(code, "08002000a73100000b");
+    hex(code, "0c002000a720013c000042000b");
+}
+fn bodies(s: i64) {
+    let code = get(s, 12);
+    runtime(code);
+    let body = vec(1);
+    let tape = get(s, 10);
+    let mut i = 0;
+    while i < get(s, 6) {
+        let f = func(s, i);
+        put(s, 2, get(f, 1)); put(s, 8, 0); put(s, 9, 0); put(s, 15, get(f, 3));
+        put(tape, 1, 0); put(body, 1, 0);
+        let n = get(f, 2);
+        let params = get(f, 4);
+        let capture = get(f, 6);
+        let mut bindings = get(f, 8);
+        if bindings == 0 { bindings = get(s, 29); }
+        put(s, 22, bindings);
+        let mut j = 0;
+        if capture < 0 {
+            j = 1;
+            while j < n { imm(s, 32, j); j = j + 1; }
+            imm(s, 16, -capture); op(s, 15); put(s, 9, n);
+        } else {
+            let mut start = 0;
+            if capture > 0 { start = 1; temporary(s); }
+            while j < n - start {
+                bind(s, get(params, j * 2), get(params, j * 2 + 1), false, 0); j = j + 1;
+            }
+            if capture > 0 { bind_capture(s, capture); }
+            let returns = block(s, 1, -1);
+            if get(s, 2) != get(f, 5) { error(s, "fim inválido de função"); }
+            if !returns {
+                if get(f, 3) != 4 { error(s, "função precisa retornar um valor"); }
+                number(s, 0); op(s, 15);
+            }
+        }
+        op(s, 0); op(s, 11);
+        let extra = get(s, 9) - n;
+        if extra == 0 { byte(body, 0); }
+        else { byte(body, 1); uleb(body, extra); byte(body, 126); }
+        j = 0;
+        while j < get(tape, 1) {
+            let p = get(tape, 0) + j * 16;
+            let w = get(p, 0); let value = get(p, 1);
+            if w == 0 { byte(body, value); }
+            else if w == 1 { uleb(body, value); }
+            else { sleb(body, value); }
+            j = j + 1;
+        }
+        uleb(code, get(body, 1)); append(code, body);
+        i = i + 1;
+    }
+}
+fn host_import(v: i64, name: str, params: i64) {
+    quoted(v, "lume"); quoted(v, name); byte(v, 0); uleb(v, params);
+}
+fn module(s: i64) -> i64 {
+    let out = vec(1); let part = vec(1); let data = get(s, 11);
+    hex(out, "0061736d01000000");
+    uleb(part, get(s, 13) + 1);
+    let mut i = 0;
+    while i <= get(s, 13) {
+        byte(part, 96); uleb(part, i);
+        let mut j = 0;
+        while j < i { byte(part, 126); j = j + 1; }
+        byte(part, 1); byte(part, 126); i = i + 1;
+    }
+    finish_section(out, part, 1);
+    byte(part, 10);
+    host_import(part, "print", 1); host_import(part, "write", 1);
+    host_import(part, "input_len", 0); host_import(part, "input_byte", 1);
+    host_import(part, "output_byte", 1); host_import(part, "abort", 1);
+    host_import(part, "print_float", 1); host_import(part, "print_char", 1);
+    host_import(part, "file_open", 2); host_import(part, "file_byte", 2);
+    finish_section(out, part, 2);
+    uleb(part, get(s, 6) + 5); hex(part, "0101020102");
+    i = 0;
+    while i < get(s, 6) { uleb(part, get(func(s, i), 2)); i = i + 1; }
+    finish_section(out, part, 3);
+    let table = get(s, 19);
+    hex(part, "017000"); uleb(part, get(table, 1)); finish_section(out, part, 4);
+    let heap = 1024 + get(data, 1);
+    hex(part, "0100"); uleb(part, (heap + 65535) / 65536); finish_section(out, part, 5);
+    hex(part, "017e0142"); sleb(part, heap); byte(part, 11); finish_section(out, part, 6);
+    byte(part, 2); quoted(part, "memory"); hex(part, "0200");
+    quoted(part, "main"); byte(part, 0); uleb(part, get(s, 14)); finish_section(out, part, 7);
+    hex(part, "010041000b"); uleb(part, get(table, 1));
+    i = 0;
+    while i < get(table, 1) { uleb(part, get(get(table, 0), i)); i = i + 1; }
+    finish_section(out, part, 9);
+    uleb(part, get(s, 6) + 5); append(part, get(s, 12)); finish_section(out, part, 10);
+    hex(part, "010041"); sleb(part, 1024); byte(part, 11);
+    uleb(part, get(data, 1)); append(part, data); finish_section(out, part, 11);
+    return out;
+}
+fn main() {
+    let s = alloc(248);
+    put(s, 4, vec(32)); put(s, 5, vec(72)); put(s, 7, vec(40));
+    put(s, 10, vec(16)); put(s, 11, vec(1)); put(s, 12, vec(1)); put(s, 13, 2);
+    put(s, 17, vec(8)); put(s, 19, vec(8)); put(s, 20, vec(8)); put(s, 21, vec(8));
+    put(s, 23, vec(8)); put(s, 24, vec(8)); put(s, 25, vec(8)); put(s, 26, vec(1));
+    put(s, 27, vec(8)); put(s, 28, vec(8)); put(s, 29, vec(24)); put(s, 22, get(s, 29));
+    let prelude = "enum Option<T> { None, Some(T) } enum Result<T,E> { Ok(T), Err(E) }\n";
+    load_unit(s, -1, "<prelude>", prelude);
+    load_unit(s, 0, "<entrada>", "");
+    let order = get(s, 25);
+    let mut i = 0;
+    while i < get(order, 1) {
+        put(s, 2, get(get(get(order, 0), i), 3)); unit_headers(s, true); i = i + 1;
+    }
+    i = 0;
+    while i < get(order, 1) {
+        put(s, 2, get(get(get(order, 0), i), 3)); unit_headers(s, false); i = i + 1;
+    }
+    i = 0;
+    while i < get(order, 1) {
+        let record = get(get(order, 0), i);
+        put(s, 2, get(record, 3)); declarations(s); i = i + 1;
+    }
+    if get(s, 14) == 0 { error(s, "main ausente"); }
+    bodies(s);
+    let wasm = module(s); validate_binary(s, wasm); i = 0;
+    while i < get(wasm, 1) { output_byte(load8(get(wasm, 0) + i)); i = i + 1; }
+}
+
+fn float_arithmetic(k: i64) -> i64 {
+    if k == 43 { return 160; }
+    if k == 45 { return 161; }
+    if k == 42 { return 162; }
+    return 163;
+}
+fn float_comparison(k: i64) -> i64 {
+    if k == 257 { return 97; }
+    if k == 258 { return 98; }
+    if k == 60 { return 99; }
+    if k == 62 { return 100; }
+    if k == 259 { return 101; }
+    return 102;
+}
+fn guard(s: i64, predicate: i64) {
+    op(s, predicate); op(s, 4); op(s, 64); op(s, 0); op(s, 11);
+}
+fn sequence_base(s: i64, k: i64, base: i64) {
+    imm(s, 32, base); number(s, 8); op(s, 124);
+    if k == 9 { imm(s, 16, 11); }
+}
+fn store_local_word(s: i64, p: i64, offset: i64, val: i64) {
+    imm(s, 32, p); number(s, offset); op(s, 124);
+    imm(s, 32, val); imm(s, 16, 12); op(s, 26);
+}
+fn make_slice(s: i64, t: i64, base: i64, index: i64, end: i64) -> i64 {
+    imm(s, 32, end); imm(s, 32, index); guard(s, 84);
+    imm(s, 32, base); imm(s, 16, 11); imm(s, 32, end); guard(s, 84);
+    let slice = temporary(s);
+    number(s, 16); imm(s, 16, 10); imm(s, 33, slice);
+    imm(s, 32, slice); imm(s, 32, end); imm(s, 32, index); op(s, 125);
+    imm(s, 16, 12); op(s, 26);
+    imm(s, 32, slice); number(s, 8); op(s, 124);
+    sequence_base(s, type_kind(t), base); imm(s, 32, index); number(s, 8); op(s, 126); op(s, 124);
+    imm(s, 16, 12); op(s, 26); imm(s, 32, slice);
+    return fresh_type(s, 9, get(t, 1), 0);
+}
+fn patch_constant(s: i64, i: i64, value: i64) {
+    let tape = get(s, 10);
+    put(get(tape, 0) + i * 16, 1, value);
+}
+fn array_literal(s: i64, expected: i64) -> i64 {
+    let mut element = 0;
+    if type_kind(expected) == 8 { element = get(expected, 1); }
+    let array = temporary(s);
+    let size = get(get(s, 10), 1) + 1;
+    number(s, 0); imm(s, 16, 10); imm(s, 33, array);
+    imm(s, 32, array);
+    let len_patch = get(get(s, 10), 1) + 1;
+    number(s, 0); imm(s, 16, 12); op(s, 26);
+    let mut len = 0;
+    while !eat(s, 93) {
+        len = len + 1;
+        imm(s, 32, array); number(s, len * 8); op(s, 124);
+        element = expression(s, 1, element);
+        imm(s, 16, 12); op(s, 26);
+        if here(s) != 93 { need(s, 44); }
+    }
+    if element == 0 { error(s, "array vazio precisa de tipo"); }
+    patch_constant(s, size, (len + 1) * 8); patch_constant(s, len_patch, len);
+    imm(s, 32, array); return fresh_type(s, 8, element, 0);
+}
+fn new_array(s: i64, expected: i64) -> i64 {
+    let len = temporary(s);
+    let fill = temporary(s);
+    let p = temporary(s);
+    let i = temporary(s);
+    expression(s, 1, 1); imm(s, 33, len); need(s, 44);
+    let t = expression(s, 1, expected); imm(s, 33, fill); eat(s, 44); need(s, 41);
+    imm(s, 32, len); number(s, 268435454); guard(s, 86);
+    imm(s, 32, len); number(s, 1); op(s, 124); number(s, 8); op(s, 126); imm(s, 16, 10); imm(s, 33, p);
+    store_local_word(s, p, 0, len);
+    number(s, 0); imm(s, 33, i);
+    op(s, 2); op(s, 64); op(s, 3); op(s, 64);
+    imm(s, 32, i); imm(s, 32, len); op(s, 89); imm(s, 13, 1);
+    sequence_base(s, 8, p); imm(s, 32, i); number(s, 8); op(s, 126); op(s, 124);
+    imm(s, 32, fill); imm(s, 16, 12); op(s, 26);
+    imm(s, 32, i); number(s, 1); op(s, 124); imm(s, 33, i); imm(s, 12, 0); op(s, 11); op(s, 11);
+    imm(s, 32, p); return fresh_type(s, 8, t, 0);
+}
+fn match_expression(s: i64, expected: i64) -> i64 {
+    let ty = expression(s, 1, 0);
+    let subject = temporary(s); imm(s, 33, subject);
+    let mut def = 0;
+    if type_kind(ty) == 11 && get(get(ty, 2), 1) == 1 { def = get(ty, 2); }
+    if ty != 1 && ty != 2 && ty != 6 && def == 0 { error(s, "tipo sem padrões"); }
+    let seen = vec(8);
+    let mut wildcard = false;
+    let mut result = expected;
+    need(s, 123);
+    while !eat(s, 125) {
+        if wildcard { error(s, "braço de match inalcançável"); }
+        let previous = get(s, 8);
+        let mut variant = 0;
+        if keyword(s, "_") { wildcard = true; }
+        else {
+            let p = bump(s);
+            let mut value = 0;
+            if def != 0 {
+                variant = find_constructor(s, p);
+                if variant == 0 || get(variant, 1) != def { error(s, "variante não pertence ao enum"); }
+                value = get(variant, 2);
+            } else if ty == 2 {
+                if word(s, p, "true") { value = 1; }
+                else if !word(s, p, "false") { error(s, "padrão bool esperado"); }
+            } else {
+                if kind(s, p) != 301 { error(s, "padrão inteiro esperado"); }
+                value = get(token(s, p), 3);
+                if ty == 6 && value > 2147483647 { error(s, "padrão fora do intervalo de i32"); }
+            }
+            let mut i = 0;
+            while i < get(seen, 1) {
+                if get(get(seen, 0), i) == value { error(s, "padrão duplicado"); }
+                i = i + 1;
+            }
+            push_word(seen, value);
+            if def == 0 { imm(s, 32, subject); }
+            else { load_local_word(s, subject, 0); }
+            number(s, value); op(s, 81); op(s, 4); op(s, 126);
+        }
+        if variant != 0 {
+            let fields = get(variant, 3);
+            let count = get(fields, 1);
+            if count > 0 || here(s) == 40 {
+                need(s, 40);
+                let mut i = 0;
+                let scope = 1000000 + get(s, 2);
+                while i < count {
+                    if i > 0 { need(s, 44); }
+                    let name = name_token(s);
+                    if !word(s, name, "_") {
+                        let t = resolve(s, get(get(fields, 0), i * 2 + 1), get(ty, 1));
+                        let slot = bind(s, name, t, false, scope);
+                        load_local_word(s, subject, (i + 1) * 8); imm(s, 33, slot);
+                    }
+                    i = i + 1;
+                }
+                if count > 0 { eat(s, 44); }
+                need(s, 41);
+            }
+        }
+        need(s, 263); result = expression(s, 1, result);
+        put(s, 8, previous);
+        if !wildcard { op(s, 5); }
+        if here(s) != 125 { need(s, 44); }
+    }
+    let mut i = get(seen, 1);
+    if !wildcard {
+        if !(ty == 2 && i == 2 || def != 0 && i == get(get(def, 2), 1)) { error(s, "match não exaustivo"); }
+        op(s, 0);
+    }
+    while i != 0 { op(s, 11); i = i - 1; }
+    return result;
+}
+fn string_compare(s: i64, negate: bool) {
+    let right = temporary(s); imm(s, 33, right);
+    let left = temporary(s); imm(s, 33, left);
+    let index = temporary(s);
+    let length = temporary(s);
+    let equal = temporary(s);
+    imm(s, 32, left); imm(s, 16, 11); imm(s, 34, length);
+    imm(s, 32, right); imm(s, 16, 11); op(s, 81); op(s, 173); imm(s, 33, equal);
+    number(s, 0); imm(s, 33, index);
+    op(s, 2); op(s, 64); op(s, 3); op(s, 64);
+    imm(s, 32, equal); op(s, 80); imm(s, 13, 1);
+    imm(s, 32, index); imm(s, 32, length); op(s, 89); imm(s, 13, 1);
+    sequence_base(s, 3, left); imm(s, 32, index); op(s, 124); imm(s, 16, 13);
+    sequence_base(s, 3, right); imm(s, 32, index); op(s, 124); imm(s, 16, 13);
+    op(s, 81); op(s, 173); imm(s, 33, equal);
+    imm(s, 32, index); number(s, 1); op(s, 124); imm(s, 33, index);
+    imm(s, 12, 0); op(s, 11); op(s, 11);
+    imm(s, 32, equal);
+    if negate { op(s, 80); op(s, 173); }
+}
+
+fn push_word(v: i64, x: i64) {
+    reserve_bytes(v, 1);
+    let index = get(v, 1);
+    put(get(v, 0), index, x); put(v, 1, index + 1);
+}
+fn same_words(a: i64, b: i64) -> bool {
+    let n = get(a, 1);
+    if get(b, 1) != n { return false; }
+    let mut i = 0;
+    while i < n {
+        if get(get(a, 0), i) != get(get(b, 0), i) { return false; }
+        i = i + 1;
+    }
+    return true;
+}
+fn push_parameter(v: i64, name: i64, ty: i64) {
+    reserve_bytes(v, 1); let i = get(v, 1);
+    put(get(v, 0), i * 2, name); put(get(v, 0), i * 2 + 1, ty); put(v, 1, i + 1);
+}
+fn skip_block(s: i64) {
+    need(s, 123); let mut depth = 1;
+    while depth > 0 {
+        if here(s) == 0 { error(s, "bloco sem fechamento"); }
+        if here(s) == 123 { depth = depth + 1; }
+        if here(s) == 125 { depth = depth - 1; }
+        bump(s);
+    }
+}
+fn add_function(s: i64, name: i64, body: i64, args: i64, ret: i64, end: i64, capture: i64) -> i64 {
+    let i = get(s, 6);
+    let v = get(s, 5); reserve_bytes(v, 1); put(v, 1, i + 1);
+    let f = func(s, i);
+    let mut count = get(args, 1);
+    if capture != 0 { count = count + 1; }
+    put(f, 0, name); put(f, 1, body); put(f, 2, count); put(f, 3, ret);
+    put(f, 4, get(args, 0)); put(f, 5, end); put(f, 6, capture);
+    put(s, 6, i + 1);
+    if count > get(s, 13) { put(s, 13, count); }
+    return i + 15;
+}
+fn add_table(s: i64, target: i64) -> i64 {
+    let table = get(s, 19);
+    let id = get(table, 1); push_word(table, target); return id;
+}
+fn load_local_word(s: i64, p: i64, offset: i64) {
+    imm(s, 32, p); number(s, offset); op(s, 124); imm(s, 16, 11);
+}
+fn store_constant_word(s: i64, p: i64, offset: i64, value: i64) {
+    imm(s, 32, p); number(s, offset); op(s, 124); number(s, value); imm(s, 16, 12); op(s, 26);
+}
+fn make_closure(s: i64, id: i64, capture: i64) {
+    let p = temporary(s);
+    let n = get(capture, 1);
+    number(s, (n + 1) * 8); imm(s, 16, 10); imm(s, 33, p);
+    store_constant_word(s, p, 0, id);
+    let mut i = 0;
+    while i < n {
+        store_local_word(s, p, (i + 1) * 8, get(get(capture, 0), i * 3 + 2));
+        i = i + 1;
+    }
+    imm(s, 32, p);
+}
+fn closure_expression(s: i64, empty: bool) -> i64 {
+    let args = vec(16); let ts = vec(8);
+    if !empty {
+        while !eat(s, 124) {
+            let name = name_token(s); need(s, 58); let ty = type_name(s);
+            push_parameter(args, name, ty); push_word(ts, ty);
+            if here(s) != 124 { need(s, 44); }
+        }
+    }
+    let mut ret = 4;
+    if eat(s, 256) { ret = type_name(s); }
+    let body = get(s, 2); skip_block(s);
+    let capture = vec(24);
+    let mut i = 0;
+    while i < get(s, 8) {
+        let p = local(s, i);
+        let name = get(p, 0);
+        let mut shadowed = false;
+        let mut j = 0;
+        while j < get(args, 1) {
+            if same_name(s, name, get(get(args, 0), j * 2)) { shadowed = true; }
+            j = j + 1;
+        }
+        if !shadowed {
+            let at = get(capture, 1);
+            reserve_bytes(capture, 1);
+            let item = get(capture, 0) + at * 24;
+            put(item, 0, name); put(item, 1, get(p, 1)); put(item, 2, get(p, 2)); put(capture, 1, at + 1);
+        }
+        i = i + 1;
+    }
+    let target = add_function(s, -1, body, args, ret, get(s, 2), capture);
+    put(func(s, target - 15), 8, get(s, 22));
+    make_closure(s, add_table(s, target), capture);
+    return fresh_type(s, 10, ts, ret);
+}
+fn bind_capture(s: i64, capture: i64) {
+    let mut i = 0;
+    while i < get(capture, 1) {
+        let item = get(capture, 0) + i * 24;
+        let at = get(s, 8); reserve_local(s, at);
+        let p = local(s, at);
+        let slot = temporary(s);
+        put(p, 0, get(item, 0)); put(p, 1, get(item, 1)); put(p, 2, slot);
+        put(p, 3, 0); put(p, 4, -1); put(s, 8, at + 1);
+        load_local_word(s, 0, (i + 1) * 8); imm(s, 33, slot);
+        i = i + 1;
+    }
+}
+fn named_function_value(s: i64, id: i64) -> i64 {
+    let f = func(s, id - 15);
+    let args = vec(16); let ts = vec(8);
+    let mut i = 0;
+    while i < get(f, 2) {
+        let t = parameter(s, id, i);
+        push_parameter(args, 0, t); push_word(ts, t); i = i + 1;
+    }
+    let ret = get(f, 3);
+    let mut slot = get(f, 7);
+    if slot == 0 {
+        let thunk = add_function(s, -1, 0, args, ret, 0, -id);
+        slot = add_table(s, thunk) + 1;
+        put(func(s, id - 15), 7, slot);
+    }
+    make_closure(s, slot - 1, vec(24));
+    return fresh_type(s, 10, ts, ret);
+}
+fn indirect(s: i64, t: i64) -> i64 {
+    if type_kind(t) != 10 { error(s, "valor não é função"); }
+    let values = get(t, 1);
+    let count = get(values, 1);
+    let closure = temporary(s);
+    imm(s, 33, closure); imm(s, 32, closure);
+    let mut i = 0;
+    while i < count {
+        if i != 0 { need(s, 44); }
+        expression(s, 1, get(get(values, 0), i)); i = i + 1;
+    }
+    if count > 0 { eat(s, 44); }
+    need(s, 41);
+    imm(s, 32, closure); op(s, 167); op(s, 40); op(s, 2); op(s, 0);
+    imm(s, 17, count + 1); op(s, 0);
+    if count + 1 > get(s, 13) { put(s, 13, count + 1); }
+    return get(t, 2);
+}
+
+// O tipo negativo -i-1 representa o i-ésimo parâmetro de uma assinatura genérica.
+fn push_generic(gs: i64, name: i64, t: i64, bound: i64) {
+    let n = get(gs, 1); reserve_bytes(gs, 1);
+    let place = get(gs, 0) + 24 * n;
+    put(place, 0, name); put(place, 1, t); put(place, 2, bound); put(gs, 1, n + 1);
+}
+fn generic_params(s: i64) -> i64 {
+    let gs = vec(24);
+    if eat(s, 60) {
+        while !eat(s, 62) {
+            let n = name_token(s);
+            let mut bound = -1;
+            if eat(s, 58) { bound = name_token(s); }
+            let mut i = 0;
+            while i < get(gs, 1) {
+                if same_name(s, n, get(get(gs, 0) + i * 24, 0)) { error(s, "parâmetro genérico duplicado"); }
+                i = i + 1;
+            }
+            push_generic(gs, n, -1 - i, bound);
+            if here(s) != 62 { need(s, 44); }
+        }
+    }
+    return gs;
+}
+fn inst_map(s: i64, gs: i64, explicit: i64) -> i64 {
+    let n = get(gs, 1);
+    let m = get(explicit, 1);
+    if m != 0 && m != n { error(s, "quantidade incorreta de argumentos de tipo"); }
+    let map = vec(8);
+    let mut i = 0;
+    while i < n {
+        if m == 0 { push_word(map, 0); }
+        else { push_word(map, get(get(explicit, 0), i)); }
+        i = i + 1;
+    }
+    return map;
+}
+fn resolve(s: i64, t: i64, map: i64) -> i64 {
+    if t < 0 { return get(get(map, 0), -1 - t); }
+    let k = type_kind(t);
+    if k < 8 { return t; }
+    if k == 8 || k == 9 {
+        let element = resolve(s, get(t, 1), map);
+        if element == 0 { return 0; }
+        return fresh_type(s, k, element, 0);
+    }
+    let original = get(t, 1);
+    let args = vec(8);
+    let mut i = 0;
+    while i < get(original, 1) {
+        let ty = resolve(s, get(get(original, 0), i), map);
+        if ty == 0 { return 0; }
+        push_word(args, ty); i = i + 1;
+    }
+    let mut back = get(t, 2);
+    if k == 10 {
+        back = resolve(s, back, map);
+        if back == 0 { return 0; }
+    }
+    return fresh_type(s, k, args, back);
+}
+fn unify(s: i64, formal: i64, actual: i64, map: i64) {
+    if formal == actual { return; }
+    if formal < 0 {
+        let index = -1 - formal;
+        let slot = get(map, 0);
+        let t = get(slot, index);
+        if t == 0 { put(slot, index, actual); }
+        else { check_type(s, actual, t); }
+        return;
+    }
+    let k = type_kind(formal);
+    if k != type_kind(actual) || k < 8 { error(s, "tipo incompatível na inferência"); }
+    if k == 8 || k == 9 { unify(s, get(formal, 1), get(actual, 1), map); return; }
+    if k == 10 { unify(s, get(formal, 2), get(actual, 2), map); }
+    if k == 11 && get(formal, 2) != get(actual, 2) { error(s, "tipos nominais diferentes"); }
+    let f = get(formal, 1); let a = get(actual, 1);
+    if get(f, 1) != get(a, 1) { error(s, "quantidade de argumentos incompatível"); }
+    let mut i = 0;
+    while i < get(f, 1) {
+        unify(s, get(get(f, 0), i), get(get(a, 0), i), map); i = i + 1;
+    }
+}
+fn resolved_bindings(s: i64, gs: i64, map: i64) -> i64 {
+    let vars = vec(24);
+    let mut i = 0;
+    while i < get(gs, 1) {
+        let item = get(gs, 0) + i * 24;
+        let t = get(get(map, 0), i);
+        if t == 0 { error(s, "argumento de tipo não inferido"); }
+        let bound = get(item, 2);
+        if bound >= 0 && !implements(s, bound, t) { error(s, "tipo não implementa o trait requerido"); }
+        push_generic(vars, get(item, 0), t, bound); i = i + 1;
+    }
+    return vars;
+}
+fn generic_call(s: i64, id: i64, explicit: i64, expected: i64) -> i64 {
+    let template = get(get(get(s, 23), 0), -2 - id);
+    let formals = get(template, 2);
+    let ret = get(template, 3);
+    let gs = get(template, 5);
+    let map = inst_map(s, gs, explicit);
+    if expected != 0 { unify(s, ret, expected, map); }
+    let n = get(formals, 1);
+    let params = vec(16);
+    let mut i = 0;
+    while i < n {
+        if i > 0 { need(s, 44); }
+        let f = get(get(formals, 0), i * 2 + 1);
+        let got = expression(s, 1, resolve(s, f, map));
+        unify(s, f, got, map);
+        push_parameter(params, get(get(formals, 0), i * 2), got); i = i + 1;
+    }
+    if n > 0 { eat(s, 44); }
+    need(s, 41);
+    let actual = resolve(s, ret, map);
+    let specs = get(template, 6); i = 0;
+    while i < get(specs, 1) {
+        let item = get(specs, 0) + i * 16;
+        if same_words(map, get(item, 0)) { imm(s, 16, get(item, 1)); return actual; }
+        i = i + 1;
+    }
+    if get(s, 6) > 4096 { error(s, "limite de especializações excedido"); }
+    let vars = resolved_bindings(s, gs, map);
+    let target = add_function(s, -1, get(template, 1), params, actual, get(template, 4), 0);
+    put(func(s, target - 15), 8, vars);
+    push_parameter(specs, map, target);
+    imm(s, 16, target); return actual;
+}
+fn expression_hint(s: i64, minimum: i64, want: i64) -> i64 {
+    if want == 0 { return 0; }
+    let mut i = get(s, 2); let mut depth = 0;
+    let match_start = word(s, i, "match");
+    let mut first = true;
+    while kind(s, i) != 0 {
+        let k = kind(s, i);
+        if depth == 0 {
+            if k == 59 || k == 44 || k == 41 || k == 93 || k == 125 || k == 264 || k == 61 || k == 263 { return want; }
+            if k == 123 && !match_start { return want; }
+            if k == 63 { return 0; }
+            let bp = precedence(k);
+            if !first && bp >= minimum && bp >= 3 && bp <= 4 && want == 2 { return 0; }
+        }
+        if k == 265 {
+            i = i + 1;
+            if kind(s, i) == 60 {
+                let mut angle = 1;
+                while angle > 0 && kind(s, i + 1) != 0 {
+                    i = i + 1;
+                    if kind(s, i) == 60 { angle = angle + 1; }
+                    if kind(s, i) == 62 { angle = angle - 1; }
+                }
+            }
+        } else {
+            if k == 40 || k == 91 || k == 123 { depth = depth + 1; }
+            if k == 41 || k == 93 || k == 125 { depth = depth - 1; }
+        }
+        first = false; i = i + 1;
+    }
+    return want;
+}
+fn find_def(s: i64, name: i64) -> i64 {
+    let defs = get(s, 20);
+    let mut i = 0;
+    while i < get(defs, 1) {
+        let d = get(get(defs, 0), i);
+        if same_name(s, get(d, 0), name) { return d; }
+        i = i + 1;
+    }
+    return 0;
+}
+fn find_constructor(s: i64, name: i64) -> i64 {
+    let constructors = get(s, 21);
+    let mut i = 0;
+    while i < get(constructors, 1) {
+        let c = get(get(constructors, 0), i);
+        if same_name(s, get(c, 0), name) { return c; }
+        i = i + 1;
+    }
+    return 0;
+}
+fn constructor_def(s: i64, name: i64, def: i64, tag: i64, fields: i64) -> i64 {
+    if find_constructor(s, name) != 0 || function_id(s, name) != -1 || find_trait_by_method(s, name) != 0 {
+        error(s, "nome de construtor em conflito");
+    }
+    let c = alloc(32);
+    put(c, 0, name); put(c, 1, def); put(c, 2, tag); put(c, 3, fields);
+    push_word(get(s, 21), c); return c;
+}
+fn data_definition(s: i64, sum: bool) {
+    let name = name_token(s);
+    let def = find_def(s, name);
+    generic_params(s);
+    let gs = get(def, 3);
+    let entries = get(def, 2);
+    put(s, 22, gs); need(s, 123);
+    if sum {
+        while !eat(s, 125) {
+            let v = name_token(s);
+            let params = vec(16);
+            if eat(s, 40) {
+                while !eat(s, 41) {
+                    push_parameter(params, -1, type_name(s));
+                    if here(s) != 41 { need(s, 44); }
+                }
+            }
+            push_word(entries, constructor_def(s, v, def, get(entries, 1), params));
+            if here(s) != 125 { need(s, 44); }
+        }
+        if get(entries, 1) == 0 { error(s, "enum sem variantes"); }
+    } else {
+        let fields = vec(16);
+        while !eat(s, 125) {
+            let n = name_token(s); need(s, 58); let t = type_name(s);
+            let mut k = 0;
+            while k < get(fields, 1) {
+                if same_name(s, n, get(get(fields, 0), k * 2)) { error(s, "campo duplicado"); }
+                k = k + 1;
+            }
+            push_parameter(fields, n, t);
+            if here(s) != 125 { need(s, 44); }
+        }
+        push_word(entries, constructor_def(s, name, def, -1, fields));
+    }
+}
+fn construct(s: i64, c: i64, explicit: i64, expected: i64, parens: bool) -> i64 {
+    let def = get(c, 1);
+    let tag = get(c, 2);
+    let fields = get(c, 3);
+    let gs = get(def, 3);
+    let map = inst_map(s, gs, explicit);
+    if expected != 0 && type_kind(expected) == 11 && get(expected, 2) == def { unify(s, get(def, 4), expected, map); }
+    let p = temporary(s);
+    let count = get(fields, 1);
+    if !parens && count != 0 { error(s, "construtor exige argumentos"); }
+    let mut words = count;
+    if tag >= 0 { words = words + 1; }
+    if words == 0 { words = 1; }
+    number(s, words * 8); imm(s, 16, 10); imm(s, 33, p);
+    let mut first = 0;
+    if tag >= 0 { store_constant_word(s, p, 0, tag); first = 1; }
+    let mut i = 0;
+    while i < count {
+        if i > 0 { need(s, 44); }
+        imm(s, 32, p); number(s, (first + i) * 8); op(s, 124);
+        let formal = get(get(fields, 0), i * 2 + 1);
+        let actual = expression(s, 1, resolve(s, formal, map));
+        unify(s, formal, actual, map);
+        imm(s, 16, 12); op(s, 26); i = i + 1;
+    }
+    if parens { if count != 0 { eat(s, 44); } need(s, 41); }
+    resolved_bindings(s, gs, map);
+    imm(s, 32, p); return resolve(s, get(def, 4), map);
+}
+fn field_access(s: i64, ty: i64) -> i64 {
+    let name = name_token(s);
+    if type_kind(ty) != 11 || get(get(ty, 2), 1) != 0 { error(s, "campo exige struct"); }
+    let fields = get(get(get(get(get(ty, 2), 2), 0), 0), 3);
+    let mut i = 0;
+    while i < get(fields, 1) {
+        if same_name(s, name, get(get(fields, 0), i * 2)) {
+            number(s, i * 8); op(s, 124); imm(s, 16, 11);
+            return resolve(s, get(get(fields, 0), i * 2 + 1), get(ty, 1));
+        }
+        i = i + 1;
+    }
+    error(s, "campo desconhecido"); return 0;
+}
+fn propagate(s: i64, t: i64) -> i64 {
+    let ret = get(s, 15);
+    if type_kind(t) != 11 || type_kind(ret) != 11 || get(t, 2) != get(ret, 2) { error(s, "? exige Option ou Result no retorno e no operando"); }
+    let name = get(get(t, 2), 0);
+    let args = get(t, 1);
+    let mut failure = 0;
+    if word(s, name, "Result") {
+        failure = 1;
+        if get(get(args, 0), 1) != get(get(get(ret, 1), 0), 1) { error(s, "tipos de erro incompatíveis"); }
+    } else if !word(s, name, "Option") { error(s, "? exige Option ou Result"); }
+    let p = temporary(s); imm(s, 33, p);
+    load_local_word(s, p, 0); number(s, failure); op(s, 81); op(s, 4); op(s, 64);
+    imm(s, 32, p); op(s, 15); op(s, 11);
+    load_local_word(s, p, 8); return get(get(args, 0), 0);
+}
+
+fn find_trait(s: i64, name: i64) -> i64 {
+    let choices = get(s, 27);
+    let mut i = 0;
+    while i < get(choices, 1) {
+        let tr = get(get(choices, 0), i);
+        if same_name(s, name, get(tr, 0)) { return tr; }
+        i = i + 1;
+    }
+    return 0;
+}
+fn trait_method(s: i64, tr: i64, name: i64) -> i64 {
+    let ms = get(tr, 1);
+    let mut i = 0;
+    while i < get(ms, 1) {
+        let method = get(get(ms, 0), i);
+        if same_name(s, name, get(method, 0)) { return method; }
+        i = i + 1;
+    }
+    return 0;
+}
+fn find_trait_by_method(s: i64, name: i64) -> i64 {
+    let choices = get(s, 27);
+    let mut i = 0;
+    while i < get(choices, 1) {
+        let tr = get(get(choices, 0), i);
+        if trait_method(s, tr, name) != 0 { return tr; }
+        i = i + 1;
+    }
+    return 0;
+}
+fn trait_definition(s: i64) {
+    let name = name_token(s);
+    if find_trait(s, name) != 0 { error(s, "trait duplicado"); }
+    let tr = alloc(16);
+    let methods = vec(8);
+    put(tr, 0, name); put(tr, 1, methods);
+    push_word(get(s, 27), tr);
+    put(s, 30, -1);
+    need(s, 123);
+    while !eat(s, 125) {
+        if !keyword(s, "fn") { error(s, "esperado método de trait"); }
+        let n = name_token(s);
+        if find_trait_by_method(s, n) != 0 || function_id(s, n) != -1 { error(s, "nome de método duplicado"); }
+        let params = signature_parameters(s);
+        if get(params, 1) == 0 || get(get(params, 0), 1) != -1 { error(s, "trait exige receptor Self"); }
+        let mut ret = 4;
+        if eat(s, 256) { ret = type_name(s); }
+        need(s, 59);
+        let item = alloc(24);
+        put(item, 0, n); put(item, 1, params); put(item, 2, ret); push_word(methods, item);
+    }
+    put(s, 30, 0);
+}
+fn find_impl(s: i64, tr: i64, ty: i64) -> i64 {
+    let impls = get(s, 28);
+    let mut i = 0;
+    while i < get(impls, 1) {
+        let item = get(get(impls, 0), i);
+        if get(item, 0) == tr && get(item, 1) == ty { return item; }
+        i = i + 1;
+    }
+    return 0;
+}
+fn implements(s: i64, tr_name: i64, ty: i64) -> bool {
+    let tr = find_trait(s, tr_name);
+    return tr != 0 && find_impl(s, tr, ty) != 0;
+}
+fn impl_method(s: i64, methods: i64, name: i64) -> i64 {
+    let mut i = 0;
+    while i < get(methods, 1) {
+        if same_name(s, name, get(get(methods, 0), i * 2)) { return get(get(methods, 0), i * 2 + 1); }
+        i = i + 1;
+    }
+    return 0;
+}
+fn implementation(s: i64) {
+    let name = name_token(s);
+    let tr = find_trait(s, name);
+    if tr == 0 { error(s, "trait desconhecido"); }
+    if !keyword(s, "for") { error(s, "esperado for em impl"); }
+    let ty = type_name(s);
+    if find_impl(s, tr, ty) != 0 { error(s, "impl duplicado"); }
+    let map = vec(8); push_word(map, ty);
+    let methods = vec(16);
+    let item = alloc(24);
+    put(item, 0, tr); put(item, 1, ty); put(item, 2, methods);
+    need(s, 123);
+    while !eat(s, 125) {
+        if !keyword(s, "fn") { error(s, "esperado método em impl"); }
+        let n = name_token(s);
+        let declared = trait_method(s, tr, n);
+        if declared == 0 || impl_method(s, methods, n) != 0 { error(s, "método ausente do trait ou duplicado"); }
+        let args = signature_parameters(s);
+        let formals = get(declared, 1);
+        if get(args, 1) != get(formals, 1) { error(s, "aridade incompatível com trait"); }
+        let mut i = 0;
+        while i < get(args, 1) {
+            check_type(s, get(get(args, 0), i * 2 + 1), resolve(s, get(get(formals, 0), i * 2 + 1), map));
+            i = i + 1;
+        }
+        let mut ret = 4;
+        if eat(s, 256) { ret = type_name(s); }
+        check_type(s, ret, resolve(s, get(declared, 2), map));
+        let body = get(s, 2); skip_block(s);
+        push_parameter(methods, n, add_function(s, -1, body, args, ret, get(s, 2), 0));
+    }
+    if get(methods, 1) != get(get(tr, 1), 1) { error(s, "impl incompleto"); }
+    push_word(get(s, 28), item);
+}
+fn method_call(s: i64, name: i64) -> i64 {
+    let tr = find_trait_by_method(s, name);
+    if tr == 0 { error(s, "função desconhecida"); }
+    let receiver = expression(s, 1, 0);
+    let item = find_impl(s, tr, receiver);
+    if item == 0 { error(s, "tipo não implementa o trait"); }
+    let id = impl_method(s, get(item, 2), name);
+    let count = arity(s, id);
+    let mut i = 1;
+    while i < count {
+        need(s, 44); expression(s, 1, parameter(s, id, i)); i = i + 1;
+    }
+    eat(s, 44); need(s, 41); imm(s, 16, id);
+    return result_type(s, id);
+}
+
+// Unidades de origem ficam em uma arena de bytes. Cada unidade tem seu EOF
+// e mantém o caminho do import para mensagens e resolução relativa.
+fn load_unit(s: i64, id: i64, label: str, prelude: str) {
+    let units = get(s, 24);
+    let mut i = 0;
+    while i < get(units, 1) {
+        let u = get(get(units, 0), i);
+        if get(u, 0) == id {
+            if get(u, 5) == 1 { error(s, "ciclo de imports"); }
+            return;
+        }
+        i = i + 1;
+    }
+    let mut size = len(prelude);
+    if id == 0 { size = input_len(); }
+    if id > 0 { size = file_byte(id, -1); }
+    let contents = get(s, 26);
+    let start = get(contents, 1);
+    if size < 0 || size + start > 1000000 { error(s, "limite de um milhão de bytes de fonte excedido"); }
+    reserve_bytes(contents, size + 1);
+    let p = get(contents, 0);
+    i = 0;
+    while i < size {
+        let mut b = 0;
+        if id == -1 { b = prelude[i]; }
+        else if id == 0 { b = input_byte(i); }
+        else { b = file_byte(id, i); }
+        store8(p + start + i, b); i = i + 1;
+    }
+    store8(p + start + size, 10);
+    put(contents, 1, start + size + 1); put(s, 0, p); put(s, 1, start + size);
+    let record = alloc(56);
+    let begin = get(s, 3);
+    put(record, 0, id); put(record, 1, start); put(record, 2, start + size);
+    put(record, 3, begin); put(record, 5, 1); put(record, 6, raw_string(label));
+    push_word(units, record);
+    lex(s, start);
+    put(record, 4, get(s, 3) - 1);
+    // Inclui o separador no limite global, de modo que os spans anteriores permaneçam válidos.
+    put(s, 1, get(contents, 1));
+    let mut depth = 0;
+    i = begin;
+    while i < get(record, 4) {
+        let k = kind(s, i);
+        if depth == 0 && word(s, i, "import") {
+            put(s, 2, i + 1);
+            if kind(s, i + 1) != 302 || kind(s, i + 2) != 59 { error(s, "import exige caminho seguido por ;"); }
+            let file = token_string(s, i + 1);
+            let n = file_open(id, file);
+            if n < 0 { error(s, "arquivo de import indisponível"); }
+            load_unit(s, n, file, "");
+            i = i + 2;
+        } else {
+            if k == 123 { depth = depth + 1; }
+            if k == 125 { depth = depth - 1; }
+        }
+        i = i + 1;
+    }
+    put(record, 5, 2);
+    push_word(get(s, 25), record);
+}
+fn raw_string(s: str) -> i64 {
+    let n = len(s); let p = alloc(8 + n); put(p, 0, n);
+    let mut i = 0;
+    while i < n { store8(p + 8 + i, s[i]); i = i + 1; }
+    return p;
+}
+fn token_string(s: i64, t: i64) -> str {
+    let tok = token(s, t);
+    let size = get(tok, 3);
+    let p = alloc(8 + size); put(p, 0, size);
+    let mut i = get(tok, 1) + 1;
+    let mut j = 0;
+    while j < size {
+        let mut c = source(s, i);
+        if c == 92 { i = i + 1; c = escape(source(s, i)); }
+        store8(p + 8 + j, c); i = i + 1; j = j + 1;
+    }
+    return str_from_raw(p);
+}
+
+fn register_data(s: i64, sum: bool) {
+    let name = name_token(s);
+    if find_def(s, name) != 0 || word(s, name, "i64") || word(s, name, "i32") || word(s, name, "f64") || word(s, name, "bool") || word(s, name, "str") || word(s, name, "char") || word(s, name, "unit") || word(s, name, "Array") || word(s, name, "Slice") || word(s, name, "Self") {
+        error(s, "tipo duplicado ou reservado");
+    }
+    let gs = generic_params(s);
+    let vars = vec(8); let mut i = 0;
+    while i < get(gs, 1) { push_word(vars, -1 - i); i = i + 1; }
+    let def = alloc(40);
+    put(def, 0, name); put(def, 1, 0); put(def, 2, vec(8)); put(def, 3, gs);
+    if sum { put(def, 1, 1); }
+    put(def, 4, fresh_type(s, 11, vars, def));
+    push_word(get(s, 20), def);
+    skip_block(s);
+}
+fn unit_headers(s: i64, data: bool) {
+    while here(s) != 0 {
+        if keyword(s, "import") { need(s, 302); need(s, 59); }
+        else if data && keyword(s, "struct") { register_data(s, false); }
+        else if data && keyword(s, "enum") { register_data(s, true); }
+        else if !data && keyword(s, "trait") { trait_definition(s); }
+        else {
+            if !keyword(s, "fn") && !keyword(s, "impl") && !keyword(s, "struct") && !keyword(s, "enum") && !keyword(s, "trait") {
+                error(s, "esperada declaração");
+            }
+            while here(s) != 123 && here(s) != 0 { bump(s); }
+            skip_block(s);
+        }
+    }
+}
+fn decode_section_size(s: i64, buf: i64, n: i64, cursor: i64) -> i64 {
+    let mut i = get(cursor, 0);
+    let mut size = 0;
+    let mut place = 1;
+    while i < n && place <= 268435456 {
+        let b = load8(buf + i); i = i + 1;
+        size = size + b % 128 * place;
+        if b < 128 {
+            if size > n { error(s, "seção WASM excede o módulo"); }
+            put(cursor, 0, i); return size;
+        }
+        place = place * 128;
+    }
+    error(s, "comprimento WASM inválido"); return 0;
+}
+fn validate_binary(s: i64, wasm: i64) {
+    let buf = get(wasm, 0); let n = get(wasm, 1);
+    if n < 8 || load(buf) != 6131245312 { error(s, "cabeçalho WASM inválido"); }
+    let cursor = alloc(8); put(cursor, 0, 8);
+    let mut id = 1;
+    while id <= 11 {
+        if id != 8 {
+            let at = get(cursor, 0);
+            if at >= n || load8(buf + at) != id { error(s, "ordem inválida de seções WASM"); }
+            put(cursor, 0, at + 1);
+            let length = decode_section_size(s, buf, n, cursor);
+            let end = get(cursor, 0) + length;
+            if end > n { error(s, "seção WASM truncada"); }
+            put(cursor, 0, end);
+        }
+        id = id + 1;
+    }
+    if get(cursor, 0) != n { error(s, "bytes excedentes após seção data"); }
+}

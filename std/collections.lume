@@ -1,0 +1,103 @@
+struct Vec<T> { items: Array<T>, size: i64, fill: T }
+
+fn vec_new<T>(fill: T) -> Vec<T> { return Vec(array(4, fill), 0, fill); }
+fn vec_push<T>(v: Vec<T>, item: T) {
+    if v.size == len(v.items) {
+        let fresh = array(v.size * 2, v.fill);
+        let mut i = 0;
+        while i < v.size { fresh[i] = v.items[i]; i = i + 1; }
+        v.items = fresh;
+    }
+    v.items[v.size] = item;
+    v.size = v.size + 1;
+}
+fn vec_get<T>(v: Vec<T>, at: i64) -> Option<T> {
+    if at < 0 || at >= v.size { return None; }
+    return Some(v.items[at]);
+}
+fn vec_pop<T>(v: Vec<T>) -> Option<T> {
+    if v.size == 0 { return None; }
+    v.size = v.size - 1;
+    let item = v.items[v.size];
+    v.items[v.size] = v.fill;
+    return Some(item);
+}
+fn vec_slice<T>(v: Vec<T>) -> Slice<T> { return v.items[0..v.size]; }
+
+trait HashKey {
+    fn key_hash(a: Self) -> i64;
+    fn key_eq(a: Self, b: Self) -> bool;
+}
+impl HashKey for i64 {
+    fn key_hash(a: i64) -> i64 { return a * 2654435761; }
+    fn key_eq(a: i64, b: i64) -> bool { return a == b; }
+}
+impl HashKey for str {
+    fn key_hash(a: str) -> i64 {
+        let mut hash = 0;
+        let mut i = 0;
+        while i < len(a) { hash = hash * 131 + a[i]; i = i + 1; }
+        return hash;
+    }
+    fn key_eq(a: str, b: str) -> bool { return a == b; }
+}
+struct HashMap<K,V> { keys: Array<K>, values: Array<V>, used: Array<bool>, size: i64, key_fill: K, val_fill: V }
+fn hash_new<K:HashKey,V>(key: K, value: V) -> HashMap<K,V> {
+    return HashMap(array(8, key), array(8, value), array(8, false), 0, key, value);
+}
+fn hash_slot<K:HashKey,V>(m: HashMap<K,V>, key: K) -> i64 {
+    let n = len(m.keys);
+    let mut i = (key_hash(key) % n + n) % n;
+    while m.used[i] {
+        if key_eq(m.keys[i], key) { return i; }
+        i = (i + 1) % n;
+    }
+    return i;
+}
+fn hash_grow<K:HashKey,V>(m: HashMap<K,V>) {
+    let keys = m.keys;
+    let values = m.values;
+    let used = m.used;
+    let n = len(keys);
+    m.keys = array(n * 2, m.key_fill);
+    m.values = array(n * 2, m.val_fill);
+    m.used = array(n * 2, false);
+    let mut i = 0;
+    while i < n {
+        if used[i] {
+            let p = hash_slot(m, keys[i]);
+            m.used[p] = true; m.keys[p] = keys[i]; m.values[p] = values[i];
+        }
+        i = i + 1;
+    }
+}
+fn hash_put<K:HashKey,V>(m: HashMap<K,V>, key: K, value: V) {
+    if (m.size + 1) * 2 > len(m.keys) { hash_grow(m); }
+    let i = hash_slot(m, key);
+    if !m.used[i] { m.size = m.size + 1; m.used[i] = true; m.keys[i] = key; }
+    m.values[i] = value;
+}
+fn hash_get<K:HashKey,V>(m: HashMap<K,V>, key: K) -> Option<V> {
+    let i = hash_slot(m, key);
+    if !m.used[i] { return None; }
+    return Some(m.values[i]);
+}
+fn hash_remove<K:HashKey,V>(m: HashMap<K,V>, key: K) -> Option<V> {
+    let first = hash_slot(m, key);
+    if !m.used[first] { return None; }
+    let result = m.values[first];
+    let n = len(m.keys);
+    m.used[first] = false;
+    m.keys[first] = m.key_fill; m.values[first] = m.val_fill;
+    m.size = m.size - 1;
+    let mut i = (first + 1) % n;
+    while m.used[i] {
+        let k = m.keys[i]; let v = m.values[i];
+        m.used[i] = false;
+        m.keys[i] = m.key_fill; m.values[i] = m.val_fill;
+        let slot = hash_slot(m, k);
+        m.used[slot] = true; m.keys[slot] = k; m.values[slot] = v;
+        i = (i + 1) % n;
+    }
+    return Some(result);
+}

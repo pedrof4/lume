@@ -1,0 +1,2 @@
+fn b(x: bool) -> bool { return !x; }
+fn main() { let x: bool = b(false); if x == true && b(x) == false { print(42); } }

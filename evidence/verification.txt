@@ -1,0 +1,405 @@
+   Compiling lumec v0.1.0 (/workspace/output/lume)
+    Finished `release` profile [optimized] target(s) in 7.01s
+   Compiling lumec v0.1.0 (/workspace/output/lume)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.51s
+     Running unittests src/lib.rs (/workspace/work/target/debug/build/lumec/eac21fd31e5f433d/out/lumec-eac21fd31e5f433d)
+
+running 8 tests
+test wasm::tests::rejects_call_with_missing_arg ... ok
+test wasm::tests::rejects_body_without_result ... ok
+test wasm::tests::rejects_invalid_local_index ... ok
+test wasm::tests::rejects_extra_bytes_after_body ... ok
+test wasm::tests::rejects_jump_outside_function ... ok
+test wasm::tests::validates_polymorphic_stack_after_unreachable ... ok
+test wasm::tests::verifies_body_with_i64_result ... ok
+test wasm::tests::rejects_result_of_wrong_wasm_type ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (/workspace/work/target/debug/build/lumec/c5cb11d77866ee11/out/lumec-c5cb11d77866ee11)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/errors.rs (/workspace/work/target/debug/build/lumec/3425f6800dfe7377/out/errors-3425f6800dfe7377)
+
+running 50 tests
+test char_empty ... ok
+test call_nonfunction ... ok
+test char_too_long ... ok
+test closure_bad_capture ... ok
+test duplicate_field ... ok
+test duplicate_function ... ok
+test duplicate_local ... ok
+test duplicate_parameter ... ok
+test duplicate_match_arm ... ok
+test empty_untyped_array ... ok
+test foreign_variant ... ok
+test heterogeneous_array ... ok
+test immutable_assignment ... ok
+test import_missing ... ok
+test incomplete_impl ... ok
+test inexhaustive_bool ... ok
+test inexhaustive_enum ... ok
+test invalid_impl ... ok
+test int_overflow ... ok
+test local_outside_scope ... ok
+test invalid_index_type ... ok
+test missing_block_end ... ok
+test missing_delimiter ... ok
+test loop_control ... ok
+test mixed_arithmetic ... ok
+test missing_trait_bound ... ok
+test no_main ... ok
+test narrow_literal_overflow ... ok
+test nonboolean_loop ... ok
+test nonboolean_if ... ok
+test propagate_wrong_return ... ok
+test propagate_wrong_error ... ok
+test return_mismatch ... ok
+test shadow_intrinsic ... ok
+test return_path ... ok
+test unclosed_string ... ok
+test string_mutation ... ok
+test unexpected_item ... ok
+test unknown_char ... ok
+test uninferred_type ... ok
+test unknown_field ... ok
+test unknown_name ... ok
+test unknown_escape ... ok
+test unknown_type ... ok
+test unreachable_match_arm ... ok
+test wrong_argument_count ... ok
+test widening_requires_cast ... ok
+test wrong_generic_arity ... ok
+test wrong_argument_type ... ok
+test wrong_main ... ok
+
+test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/fuzz.rs (/workspace/work/target/debug/build/lumec/e88197469929d3ef/out/fuzz-e88197469929d3ef)
+
+running 1 test
+test fuzz_5000_programs ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.78s
+
+     Running tests/graph_and_bounds.rs (/workspace/work/target/debug/build/lumec/65e3113f25a0660e/out/graph_and_bounds-65e3113f25a0660e)
+
+running 8 tests
+test array_rejects_index_equal_to_length ... ok
+test imported_body_reports_its_own_path ... ok
+test array_rejects_negative_index ... ok
+test imports_detect_cycle ... ok
+test imports_canonical_diamond_once ... ok
+test slice_rejects_end_after_length ... ok
+test slice_rejects_reversed_interval ... ok
+test utf8_string_rejects_index_after_bytes ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s
+
+     Running tests/ir.rs (/workspace/work/target/debug/build/lumec/8d581f97ada8f9b6/out/ir-8d581f97ada8f9b6)
+
+running 42 tests
+test cmp_eq ... ok
+test cmp_bool ... ok
+test cmp_float_eq ... ok
+test cmp_float_nan ... ok
+test cmp_float_gt ... ok
+test cmp_ge ... ok
+test cmp_le ... ok
+test cmp_gt ... ok
+test cmp_lt ... ok
+test cmp_ne ... ok
+test cse_never_eliminates_memory_reads ... ok
+test cse_respects_mutated_inputs ... ok
+test cse_reuses_pure_expression ... ok
+test dce_preserves_prints ... ok
+test dce_preserves_traps ... ok
+test dce_drops_unreachable_print ... ok
+test division_by_zero_is_preserved ... ok
+test deterministic_binary_output ... ok
+test effectful_arguments_keep_call ... ok
+test fold_add ... ok
+test fold_div ... ok
+test fold_i32_overflow ... ok
+test fold_mul ... ok
+test fold_min_remainder ... ok
+test fold_negative_i32 ... ok
+test fold_negs ... ok
+test fold_nested ... ok
+test fold_overflow_add ... ok
+test fold_overflow_mul ... ok
+test fold_overflow_sub ... ok
+test fold_rem ... ok
+test fold_sub ... ok
+test increments_fold_only_before_mutation ... ok
+test o0_preserves_expression ... ok
+test overflowing_division_is_preserved ... ok
+test pure_calls_inline_in_o2 ... ok
+test recursive_inlining_expands_one_layer ... ok
+test remainder_by_zero_is_preserved ... ok
+test trapping_conversion_is_preserved ... ok
+test unresolved_branch_kills_constant_facts ... ok
+test wasm_signature ... ok
+test while_kills_constant_facts ... ok
+
+test result: ok. 42 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/programs.rs (/workspace/work/target/debug/build/lumec/f5d0fd94895037e1/out/programs-f5d0fd94895037e1)
+
+running 106 tests
+test ackermann_three ... ok
+test ackermann_base ... ok
+test ackermann_two ... ok
+test and_rhs ... ok
+test arity_seven ... ok
+test avl ... ok
+test binomial_edge ... ok
+test binomial_interior ... ok
+test binomial_outside ... ok
+test boolean_storage ... ok
+test branch_return ... ok
+test branch_assignment ... ok
+test branch_shadow ... ok
+test byte_count_absent ... ok
+test byte_count_ascii ... ok
+test byte_count_utf8 ... ok
+test call_eager ... ok
+test char_cmp ... ok
+test closure_chain ... ok
+test codepoint ... ok
+test collatz_long ... ok
+test collatz_base ... ok
+test collatz_power_two ... ok
+test escapes ... ok
+test eval_order ... ok
+test expression_interpreter ... ok
+test factorial_ten ... ok
+test factorial_twenty ... ok
+test factorial_zero ... ok
+test fib_iter_large ... ok
+test fib_iter_zero ... ok
+test fibonacci ... ok
+test function_values ... ok
+test gcd_common ... ok
+test gcd_coprime ... ok
+test gcd_negative ... ok
+test gcd_zero ... ok
+test generic_inference ... ok
+test hash_map_own ... ok
+test heap_alignment ... ok
+test heap_growth ... ok
+test heap_words ... ok
+test isqrt_below ... ok
+test isqrt_billion ... ok
+test isqrt_empty ... ok
+test isqrt_square ... ok
+test json_parser ... ok
+test lcm ... ok
+test lex_comment ... ok
+test long_local ... ok
+test main_value ... ok
+test match_bool ... ok
+test match_int ... ok
+test mergesort_generic ... ok
+test modexp_composite ... ok
+test modexp_identity ... ok
+test modexp_power ... ok
+test mutual_recursion ... ok
+test n_queens ... ok
+test narrow_i32 ... ok
+test negative_div_rem ... ok
+test negative_index_guard ... ok
+test nested_break ... ok
+test or_rhs ... ok
+test palindrome_empty ... ok
+test palindrome_even ... ok
+test palindrome_failure ... ok
+test palindrome_odd ... ok
+test parse_decimal_invalid ... ok
+test parameter_shadow ... ok
+test parse_decimal_signed ... ok
+test parse_decimal_unsigned ... ok
+test popcount_all ... ok
+test popcount_mixed ... ok
+test popcount_zero ... ok
+test primality_large ... ok
+test primality_low ... ok
+test primality_square ... ok
+test progression_even ... ok
+test progression_immediate ... ok
+test progression_odd ... ok
+test progression_prefix ... ok
+test punctuation ... ok
+test quicksort_generic ... ok
+test read_default ... ok
+test result_option ... ok
+test reverse_palindrome ... ok
+test reverse_trailing ... ok
+test reverse_zero ... ok
+test scalars ... ok
+test short_and ... ok
+test short_or ... ok
+test sieve ... ok
+test signed_leb ... ok
+test slices_alias ... ok
+test str_value_equality ... ok
+test stdlib ... ok
+test unit_explicit ... ok
+test unit_inferred ... ok
+test utf8_str ... ok
+test unsigned_byte ... ok
+test while_break ... ok
+test while_continue ... ok
+test wrapping_i32 ... ok
+test wide_unary ... ok
+test wrapping_i64 ... ok
+
+test result: ok. 106 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.56s
+
+     Running tests/syntax.rs (/workspace/work/target/debug/build/lumec/21e489e0c7e071e0/out/syntax-21e489e0c7e071e0)
+
+running 118 tests
+test adjacent ... ok
+test assign_field ... ok
+test assign_index ... ok
+test assign_local ... ok
+test basic_int ... ok
+test binary_and ... ok
+test binary_grouped ... ok
+test binary_mod ... ok
+test binary_equal ... ok
+test binary_ord ... ok
+test binary_or ... ok
+test branch_else ... ok
+test branch_else_if ... ok
+test branch_no_else ... ok
+test call_binds_more_tightly_than_negation ... ok
+test char_ascii ... ok
+test char_emoji ... ok
+test char_quote ... ok
+test char_unicode ... ok
+test char_tab ... ok
+test empty ... ok
+test empty_loop ... ok
+test expr_case ... ok
+test expr_chained_call ... ok
+test expr_char ... ok
+test expr_closure_zero ... ok
+test expr_closure ... ok
+test expr_empty_array ... ok
+test expr_float ... ok
+test expr_field ... ok
+test expr_index ... ok
+test expr_named_call ... ok
+test expr_slice ... ok
+test expr_nonempty_array ... ok
+test expr_string ... ok
+test expr_turbofish ... ok
+test expr_try ... ok
+test fractional_float ... ok
+test grouped_int ... ok
+test grouped_float ... ok
+test ident_underscore ... ok
+test ident_unicode ... ok
+test ident_numbers ... ok
+test index_binds_more_tightly_than_negation ... ok
+test item_enum ... ok
+test item_fn_generic ... ok
+test item_fn ... ok
+test item_import ... ok
+test item_impl ... ok
+test item_struct ... ok
+test item_trait ... ok
+test let_inferred ... ok
+test let_function_type ... ok
+test let_mut ... ok
+test let_typed ... ok
+test let_nested_type ... ok
+test lexer_recovers_after_two_errors ... ok
+test line_comment ... ok
+test line_comment_end ... ok
+test literal_range ... ok
+test longest_match_arrow ... ok
+test loop_exit ... ok
+test longest_match_eq ... ok
+test loop_next ... ok
+test max_int ... ok
+test mul_binds_more_tightly_than_add ... ok
+test negative_tokens ... ok
+test nested_angle ... ok
+test raw_empty_string ... ok
+test parser_recovers_at_next_declaration ... ok
+test return_unit ... ok
+test str_carriage ... ok
+test return_value ... ok
+test str_newline ... ok
+test str_null ... ok
+test str_quote ... ok
+test str_tab ... ok
+test str_slash ... ok
+test subtraction_is_left_associative ... ok
+test sym_arrow ... ok
+test sym_and ... ok
+test sym_assignment ... ok
+test sym_bang ... ok
+test sym_colon ... ok
+test sym_comma ... ok
+test sym_colons ... ok
+test sym_div ... ok
+test sym_dot ... ok
+test sym_eq ... ok
+test sym_fat_arrow ... ok
+test sym_gt ... ok
+test sym_ge ... ok
+test sym_lbrace ... ok
+test sym_le ... ok
+test sym_lbracket ... ok
+test sym_lparen ... ok
+test sym_lt ... ok
+test sym_minus ... ok
+test sym_mul ... ok
+test sym_ne ... ok
+test sym_or ... ok
+test sym_plus ... ok
+test sym_pipe ... ok
+test sym_range ... ok
+test sym_rbrace ... ok
+test sym_rbracket ... ok
+test sym_rem ... ok
+test sym_rparen ... ok
+test sym_semicolon ... ok
+test sym_try ... ok
+test text_comment ... ok
+test trailing_dot ... ok
+test unary_bool ... ok
+test unary_numeric ... ok
+test utf8_string ... ok
+test white_space ... ok
+test wildcard ... ok
+test zero_int ... ok
+
+test result: ok. 118 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+   Doc-tests lumec
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Checking lumec v0.1.0 (/workspace/output/lume)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.58s
+2da2c332c6cf779a5fff6fee3eb078c47b5dfba76501739e83898d4aafb7ffd1  build/stage2.wasm
+2da2c332c6cf779a5fff6fee3eb078c47b5dfba76501739e83898d4aafb7ffd1  build/stage3.wasm
+Bootstrap: 106/106 programas com a saída esperada
+Bootstrap: 50/50 fontes inválidas rejeitadas com diagnóstico de origem
+Node v24.22.3 | x64 | INTEL(R) XEON(R) PLATINUM 8573C | 15 amostras por nível
+fib: O0 52.56 ms | O2 38.39 ms | 1.369x | 27.0%
+  amostras O0 [49.69, 48.47, 49.61, 49.36, 53.15, 52.56, 49.13, 49.19, 49.57, 64.35, 57.78, 54.45, 53.07, 59.46, 54.72] O2 [37.67, 41.37, 38.39, 42.12, 37.65, 35.55, 36.81, 40.91, 37.15, 37.96, 38.22, 38.61, 40.58, 48.05, 43.23]
+sieve: O0 67.03 ms | O2 68.43 ms | 0.980x | -2.1%
+  amostras O0 [118.99, 67.33, 66.56, 96.86, 67.03, 67.90, 63.96, 70.56, 68.36, 66.08, 65.87, 65.30, 63.76, 63.97, 69.73] O2 [74.82, 76.74, 80.54, 65.38, 64.21, 68.43, 66.60, 67.72, 68.63, 66.09, 67.80, 77.32, 70.74, 64.36, 72.13]
+sort: O0 181.36 ms | O2 178.45 ms | 1.016x | 1.6%
+  amostras O0 [177.36, 172.54, 178.49, 181.36, 190.80, 190.05, 172.31, 190.71, 178.06, 205.81, 187.41, 175.42, 177.99, 185.04, 183.17] O2 [177.43, 188.49, 189.30, 178.45, 183.67, 189.24, 177.00, 185.30, 176.45, 175.66, 177.76, 172.65, 176.25, 178.67, 178.62]
+O2 mais rápido em 2/3

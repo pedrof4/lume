@@ -1,0 +1,2 @@
+
+fn main() { print_float(1.25 * -2.0 + 10.0); print_char('λ'); write("\n"); print(as_i64(as_f64(-17))); }

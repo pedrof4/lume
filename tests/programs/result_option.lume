@@ -1,0 +1,18 @@
+struct Pair<A,B> { left: A, right: B }
+enum Route { Local, Remote(str, i64), Broken(i64) }
+fn to_option(v: i64) -> Option<i64> { if v < 0 { return None; } return Some(v); }
+fn project(v: i64) -> Option<Pair<i64,bool>> { return Some(Pair(to_option(v)?, true)); }
+fn fetch(route: Route) -> Result<i64,str> {
+    return match route { Local => Ok(11), Remote(host,port) => Ok(len(host) + port), Broken(_) => Err("rota inválida") };
+}
+fn send(route: Route) -> Result<str,str> {
+    let n = fetch(route)?;
+    if n > 10 { return Ok("enviado"); }
+    return Err("limite");
+}
+fn main() {
+    print(match project(7) { None => -1, Some(p) => p.left });
+    print(match project(-3) { None => -1, Some(p) => p.left });
+    write(match send(Remote("host", 20)) { Ok(s) => s, Err(s) => s }); write("\n");
+    write(match send(Broken(4)) { Ok(s) => s, Err(s) => s }); write("\n");
+}

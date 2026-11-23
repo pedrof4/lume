@@ -1,0 +1,2 @@
+fn send() { if true { print(8); return; } print(66); }
+fn main() { let result = send(); print(99); }

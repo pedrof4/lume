@@ -1,0 +1,24 @@
+import "../std/sort.lume";
+fn main() {
+    let n = 1000000;
+    let a = array(n, 0);
+    let mut seed = 17;
+    let mut check = 0;
+    let mut i = 0;
+    while i < n {
+        seed = (seed * 48271) % 2147483647;
+        a[i] = seed;
+        check = check + seed;
+        i = i + 1;
+    }
+    quicksort(a);
+    let mut sum = a[0];
+    i = 1;
+    while i < n {
+        if a[i] < a[i - 1] { abort(1); }
+        sum = sum + a[i];
+        i = i + 1;
+    }
+    if sum != check { abort(2); }
+    print(sum);
+}

@@ -1,0 +1,11 @@
+import "../../std/sort.lume";
+struct Event { time: i64, id: char }
+impl Order for Event { fn less(a: Event, b: Event) -> bool { return a.time < b.time; } }
+fn main() {
+    let data = [Event(3,'a'),Event(2,'b'),Event(3,'c'),Event(1,'d'),Event(2,'e')];
+    mergesort(data);
+    let mut i = 0;
+    while i < len(data) { print_char(data[i].id); i = i + 1; }
+    write("\n");
+    let a = [9.5,-7.0,1.25,-1.5]; mergesort(a); print_float(a[1]); print_float(a[3]);
+}

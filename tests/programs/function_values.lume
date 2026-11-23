@@ -1,0 +1,2 @@
+fn add(a: i64,b: i64) -> i64 { return a+b; } fn apply(f: fn(i64,i64) -> i64, n: i64) -> i64 { return f(n,n); }
+fn main() { print(apply(add,21)); }

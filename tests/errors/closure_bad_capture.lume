@@ -1,0 +1,1 @@
+fn main(){let mut n=2;let f=|| {n=3;}; f();}

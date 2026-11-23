@@ -1,0 +1,2 @@
+fn choose(t: bool) -> i64 { return match t { true => 10, false => 3 }; }
+fn main() { print(choose(true)); print(choose(false)); }

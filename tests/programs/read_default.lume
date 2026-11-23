@@ -1,0 +1,2 @@
+
+fn main() { print(input_len()); print(input_byte(0)); print(input_byte(-1)); }

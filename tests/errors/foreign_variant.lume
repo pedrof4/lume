@@ -1,0 +1,1 @@
+enum E { A } enum F { B } fn main() { print(match A { B=>0 }); }

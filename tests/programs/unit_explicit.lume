@@ -1,0 +1,2 @@
+fn send() -> unit { print(8); return; }
+fn main() { send(); print(9); }

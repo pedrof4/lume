@@ -1,0 +1,52 @@
+fn skip(s: str, p: i64) {
+    let mut i = load(p);
+    while i < len(s) && s[i] == 32 { i = i + 1; }
+    store(p, i);
+}
+fn take(s: str, p: i64, c: i64) -> bool {
+    skip(s, p); let i = load(p);
+    if i < len(s) && s[i] == c { store(p, i + 1); return true; }
+    return false;
+}
+fn atom(s: str, p: i64) -> i64 {
+    if take(s, p, 40) {
+        let res = sum(s, p);
+        if !take(s, p, 41) { abort(1); }
+        return res;
+    }
+    if take(s, p, 45) { return -atom(s, p); }
+    skip(s, p);
+    let mut i = load(p);
+    let start = i;
+    let mut n = 0;
+    while i < len(s) && s[i] >= 48 && s[i] <= 57 { n = n * 10 + s[i] - 48; i = i + 1; }
+    if i == start { abort(2); }
+    store(p, i);
+    return n;
+}
+fn product(s: str, p: i64) -> i64 {
+    let mut n = atom(s, p);
+    while true {
+        if take(s, p, 42) { n = n * atom(s, p); }
+        else if take(s, p, 47) { n = n / atom(s, p); }
+        else { return n; }
+    }
+    return n;
+}
+fn sum(s: str, p: i64) -> i64 {
+    let mut n = product(s, p);
+    while true {
+        if take(s, p, 43) { n = n + product(s, p); }
+        else if take(s, p, 45) { n = n - product(s, p); }
+        else { return n; }
+    }
+    return n;
+}
+fn eval(s: str) -> i64 {
+    let p = alloc(8);
+    let result = sum(s, p);
+    skip(s, p);
+    if load(p) != len(s) { abort(3); }
+    return result;
+}
+fn main() { print(eval("10 + (5 * -2 + 24) / 2 - 3")); print(eval("8 - 3 - 2 * 2")); }

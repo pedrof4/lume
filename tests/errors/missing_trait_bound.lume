@@ -1,0 +1,1 @@
+trait O {fn less(a:Self,b:Self)->bool;} fn id<T:O>(a:T)->T{return a;} fn main(){print(id(1));}

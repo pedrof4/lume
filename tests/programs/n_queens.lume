@@ -1,0 +1,23 @@
+fn legal(board: i64, row: i64, col: i64) -> bool {
+    let mut i = 0;
+    while i < row {
+        let d = load(board + i * 8) - col;
+        if d == 0 || d == row - i || d == i - row { return false; }
+        i = i + 1;
+    }
+    return true;
+}
+fn search(board: i64, n: i64, row: i64) -> i64 {
+    if row == n { return 1; }
+    let mut col = 0;
+    let mut count = 0;
+    while col < n {
+        if legal(board, row, col) {
+            store(board + row * 8, col);
+            count = count + search(board, n, row + 1);
+        }
+        col = col + 1;
+    }
+    return count;
+}
+fn main() { print(search(alloc(8 * 8), 8, 0)); }

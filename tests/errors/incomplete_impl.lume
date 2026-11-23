@@ -1,0 +1,1 @@
+trait O {fn less(a:Self,b:Self)->bool;} impl O for i64 {} fn main(){}

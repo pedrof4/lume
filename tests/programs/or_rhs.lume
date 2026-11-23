@@ -1,0 +1,2 @@
+fn yes() -> bool { print(10); return false; }
+fn main() { if false || yes() { print(0); } else { print(20); } }

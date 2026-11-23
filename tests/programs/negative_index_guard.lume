@@ -1,0 +1,2 @@
+
+fn main() { let s = ""; let i = -1; if i >= 0 && i < len(s) && s[i] == 0 { print(4); } else { print(5); } }

@@ -1,0 +1,48 @@
+trait Order { fn less(a: Self, b: Self) -> bool; }
+impl Order for i64 { fn less(a: i64, b: i64) -> bool { return a < b; } }
+impl Order for i32 { fn less(a: i32, b: i32) -> bool { return a < b; } }
+impl Order for f64 { fn less(a: f64, b: f64) -> bool { return a < b; } }
+impl Order for char { fn less(a: char, b: char) -> bool { return a < b; } }
+
+fn quicksort<T:Order>(a: Array<T>) { quick_range(a, 0, len(a)); }
+fn quick_range<T:Order>(a: Array<T>, start: i64, end: i64) {
+    let mut lo = start;
+    let mut hi = end;
+    while hi - lo > 1 {
+        let pivot = a[lo + (hi - lo) / 2];
+        let mut small = lo;
+        let mut i = lo;
+        let mut large = hi;
+        while i < large {
+            let x = a[i];
+            if less(x, pivot) {
+                a[i] = a[small]; a[small] = x; small = small + 1; i = i + 1;
+            } else if less(pivot, x) {
+                large = large - 1; a[i] = a[large]; a[large] = x;
+            } else { i = i + 1; }
+        }
+        // A menor metade usa a pilha, limitando a profundidade a log2(n).
+        if small - lo < hi - large { quick_range(a, lo, small); lo = large; }
+        else { quick_range(a, large, hi); hi = small; }
+    }
+}
+fn mergesort<T:Order>(a: Array<T>) {
+    let n = len(a);
+    if n > 1 { merge_range(a, array(n, a[0]), 0, n); }
+}
+fn merge_range<T:Order>(a: Array<T>, buf: Array<T>, lo: i64, hi: i64) {
+    if hi - lo <= 1 { return; }
+    let mid = lo + (hi - lo) / 2;
+    merge_range(a, buf, lo, mid); merge_range(a, buf, mid, hi);
+    if !less(a[mid], a[mid - 1]) { return; }
+    let mut i = lo;
+    let mut j = mid;
+    let mut k = lo;
+    while k < hi {
+        if i < mid && (j == hi || !less(a[j], a[i])) { buf[k] = a[i]; i = i + 1; }
+        else { buf[k] = a[j]; j = j + 1; }
+        k = k + 1;
+    }
+    k = lo;
+    while k < hi { a[k] = buf[k]; k = k + 1; }
+}

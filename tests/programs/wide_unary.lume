@@ -1,0 +1,2 @@
+
+fn main() { print(-(-(-(12 + 2)))); if !!!false { print(7); } }

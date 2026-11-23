@@ -1,0 +1,2 @@
+fn decimal(s: str) -> i64 { let mut i = 0; let mut n = 0; let negative = len(s) != 0 && s[0] == 45; if negative { i = 1; } while i < len(s) { let k = s[i] - 48; if k < 0 || k > 9 { return -999; } n = n * 10 + k; i = i + 1; } if negative { return -n; } return n; }
+fn main() { print(decimal("5712")); }

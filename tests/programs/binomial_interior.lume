@@ -1,0 +1,2 @@
+fn t(n: i64, k: i64) -> i64 { if k == 0 || k == n { return 1; } if k > n { return 0; } return t(n - 1,k - 1) + t(n - 1,k); }
+fn main() { print(t(14,7)); }

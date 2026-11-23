@@ -1,0 +1,18 @@
+fn factory(base: i64) -> fn(i64) -> fn(i64) -> i64 {
+    return |step: i64| -> fn(i64) -> i64 {
+        let start = base + step;
+        return |x: i64| -> i64 { return start * x + base; };
+    };
+}
+fn combine<A,B,C>(f: fn(A) -> B, g: fn(B) -> C) -> fn(A) -> C {
+    return |x: A| -> C { return g(f(x)); };
+}
+fn double(x: i64) -> i64 { return x * 2; }
+fn main() {
+    let build = factory(9);
+    let a = combine(build(3), double);
+    let mut step = 2;
+    let f = |x: i64| -> i64 { return x + step; };
+    step = 12;
+    print(a(4)); print(build(1)(5)); print(f(step));
+}

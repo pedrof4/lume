@@ -1,0 +1,2 @@
+
+fn main() { let max = 9223372036854775807; print(max + 1); print((max + 1) - 1); }

@@ -1,0 +1,21 @@
+import "../../std/iter.lume";
+import "../../std/string.lume";
+fn main() {
+    let m = hash_new("", 0);
+    let keys = ["alfa", "beta", "gama", "delta", "épsilon", "zeta", "eta", "teta", "iota"];
+    let mut i = 0;
+    while i < len(keys) { hash_put(m, keys[i], i + 1); i = i + 1; }
+    print(match hash_remove(m,"delta") { None => 0, Some(x) => x });
+    print(match hash_get(m,"teta") { None => 0, Some(x) => x });
+    print(match hash_get(m,"delta") { None => -1, Some(x) => x });
+    let v = vec_new(0);
+    i = 0;
+    while i < 12 { vec_push(v, i); i = i + 1; }
+    print(match vec_pop(v) { None => -1, Some(x) => x });
+    let evens = filter(iter(vec_slice(v)), 0, |x: i64| -> bool { return x % 2 == 0; });
+    let mapped = map(iter(vec_slice(evens)), 0, |x: i64| -> i64 { return x * x; });
+    let result = fold(iter(vec_slice(mapped)), 0, |a: i64, b: i64| -> i64 { return a+b; });
+    print(result);
+    let s = string_new(); string_push(s,"Lume λ "); string_push(s, format_i64(-9223372036854775807 - 1));
+    write(string_freeze(s)); write("\n");
+}

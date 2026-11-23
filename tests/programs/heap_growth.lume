@@ -1,0 +1,2 @@
+
+fn main() { let x = alloc(300000); store(x,33); store(x + 299992,44); print(load(x) * load(x + 299992)); }

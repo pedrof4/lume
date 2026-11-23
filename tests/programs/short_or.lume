@@ -1,0 +1,2 @@
+fn boom() -> bool { abort(77); return true; }
+fn main() { if true || boom() { print(7); } }

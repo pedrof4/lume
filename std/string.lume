@@ -1,0 +1,32 @@
+struct String { bytes: i64, size: i64, capacity: i64 }
+fn string_new() -> String { return String(alloc(16), 0, 16); }
+fn string_push_byte(s: String, value: i64) {
+    if s.size == s.capacity {
+        let fresh = alloc(s.capacity * 2);
+        let mut i = 0;
+        while i < s.size { store8(fresh + i, load8(s.bytes + i)); i = i + 1; }
+        s.bytes = fresh; s.capacity = s.capacity * 2;
+    }
+    store8(s.bytes + s.size, value); s.size = s.size + 1;
+}
+fn string_push(s: String, value: str) {
+    let mut i = 0;
+    while i < len(value) { string_push_byte(s, value[i]); i = i + 1; }
+}
+fn string_freeze(s: String) -> str {
+    let p = alloc(s.size + 8); store(p, s.size);
+    let mut i = 0;
+    while i < s.size { store8(p + 8 + i, load8(s.bytes + i)); i = i + 1; }
+    return str_from_raw(p);
+}
+fn format_i64(value: i64) -> str {
+    let s = string_new();
+    let mut n = value;
+    if n < 0 { string_push_byte(s, 45); } else { n = -n; }
+    let reverse = alloc(20);
+    let mut i = 0;
+    store8(reverse, 48 - n % 10); n = n / 10; i = i + 1;
+    while n != 0 { store8(reverse + i, 48 - n % 10); n = n / 10; i = i + 1; }
+    while i > 0 { i = i - 1; string_push_byte(s, load8(reverse + i)); }
+    return string_freeze(s);
+}

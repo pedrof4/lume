@@ -1,0 +1,19 @@
+fn main() {
+    let n = 2000;
+    let marked = alloc(n + 1);
+    let mut p = 2;
+    while p * p <= n {
+        if load8(marked + p) == 0 {
+            let mut i = p * p;
+            while i <= n { store8(marked + i, 1); i = i + p; }
+        }
+        p = p + 1;
+    }
+    let mut count = 0;
+    p = 2;
+    while p <= n {
+        if load8(marked + p) == 0 { count = count + 1; }
+        p = p + 1;
+    }
+    print(count);
+}

@@ -1,0 +1,2 @@
+fn side(n: i64) -> i64 { print(n); return n; }
+fn main() { print(side(1) + side(2) * side(3)); }

@@ -1,0 +1,2 @@
+import "../../std/string.lume";
+fn main() { let a = string_new(); string_push(a,"λ"); if string_freeze(a) == "λ" && string_freeze(a) != "é" { print(1); } }

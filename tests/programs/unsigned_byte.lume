@@ -1,0 +1,2 @@
+
+fn main() { let p=alloc(1); store8(p,-1); print(load8(p)); store8(p,258); print(load8(p)); }

@@ -1,0 +1,20 @@
+// Endereçamento aberto, colisões lineares, substituição de chaves existentes.
+fn index(map: i64, mask: i64, key: i64) -> i64 {
+    let mut i = (key % mask + mask) % mask;
+    while load(map + 24 * i) != 0 && load(map + 24 * i + 8) != key { i = (i + 1) % mask; }
+    return map + 24 * i;
+}
+fn set(map: i64, size: i64, key: i64, value: i64) {
+    let at = index(map, size, key);
+    store(at, 1); store(at + 8, key); store(at + 16, value);
+}
+fn lookup(map: i64, size: i64, key: i64) -> i64 {
+    let at = index(map, size, key);
+    if load(at) == 0 { return -1; }
+    return load(at + 16);
+}
+fn main() {
+    let m = alloc(24 * 11);
+    set(m, 11, -3, 23); set(m, 11, 8, 88); set(m, 11, 19, 100); set(m, 11, 8, 90);
+    print(lookup(m, 11, -3)); print(lookup(m, 11, 8)); print(lookup(m, 11, 19)); print(lookup(m, 11, 30));
+}

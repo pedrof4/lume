@@ -1,0 +1,12 @@
+import "../../std/sort.lume";
+struct Entry { key: i64, group: char }
+impl Order for Entry { fn less(a: Entry, b: Entry) -> bool { return a.key < b.key; } }
+fn main() {
+    let words = ['d','a','c','a','b']; quicksort(words);
+    let mut i = 0;
+    while i < len(words) { print_char(words[i]); i = i + 1; }
+    write("\n");
+    let a = [Entry(2,'c'),Entry(0,'a'),Entry(1,'b')]; quicksort(a);
+    i = 0; while i < len(a) { print_char(a[i].group); i = i + 1; }
+    write("\n");
+}

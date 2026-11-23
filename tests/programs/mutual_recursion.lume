@@ -1,0 +1,2 @@
+fn even(v: i64) -> bool { if v == 0 { return true; } return odd(v - 1); } fn odd(v: i64) -> bool { if v == 0 { return false; } return even(v - 1); }
+fn main() { if even(45) { print(0); } else { print(1); } }

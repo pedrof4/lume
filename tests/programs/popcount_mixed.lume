@@ -1,0 +1,2 @@
+fn ones(x: i64) -> i64 { let mut n = x; let mut total = 0; while n > 0 { total = total + n % 2; n = n / 2; } return total; }
+fn main() { print(ones(1073741825)); }

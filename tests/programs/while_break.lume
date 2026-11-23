@@ -1,0 +1,2 @@
+
+fn main() { let mut i = 0; while true { if i == 12 { break; } i = i + 1; } print(i); }

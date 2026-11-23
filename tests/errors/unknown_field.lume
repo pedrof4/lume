@@ -1,0 +1,1 @@
+struct X { value:i64 } fn main() { let x=X(1); print(x.val); }

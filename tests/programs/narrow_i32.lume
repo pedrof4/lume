@@ -1,0 +1,2 @@
+
+fn main() { let x = as_i32(4294967299); print(as_i64(x)); print(as_i64(as_i32(4294967295))); }

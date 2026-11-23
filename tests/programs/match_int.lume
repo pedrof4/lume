@@ -1,0 +1,2 @@
+fn choose(t: i64) -> i64 { return match t { 0 => 1, 50 => 2, _ => 3 }; }
+fn main() { print(choose(0)); print(choose(50)); print(choose(10)); }

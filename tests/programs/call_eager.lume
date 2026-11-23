@@ -1,0 +1,2 @@
+fn x(n: i64) -> i64 { print(n); return n; } fn second(a: i64,b: i64) -> i64 { return b; }
+fn main() { print(second(x(1),x(2))); }

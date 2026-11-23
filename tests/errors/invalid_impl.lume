@@ -1,0 +1,1 @@
+trait O {fn less(a:Self,b:Self)->bool;} impl O for i64 {fn less(a:i64,b:i64)->i64{return 0;}} fn main(){}

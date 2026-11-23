@@ -1,0 +1,2 @@
+
+fn main() { let a: i32 = 2147483647; let b: i32 = a + 1; print(as_i64(b)); }

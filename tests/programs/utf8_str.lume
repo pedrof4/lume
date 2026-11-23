@@ -1,0 +1,2 @@
+
+fn main() { let s = "aéλ"; print(len(s)); print(s[1]); write(s); write("\n"); }

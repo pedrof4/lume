@@ -1,0 +1,49 @@
+// Nó de quatro palavras: chave, altura, filho esquerdo, filho direito.
+fn max(a: i64, b: i64) -> i64 { if a > b { return a; } return b; }
+fn height(p: i64) -> i64 { if p == 0 { return 0; } return load(p + 8); }
+fn fix(p: i64) { store(p + 8, 1 + max(height(load(p + 16)), height(load(p + 24)))); }
+fn rotate_right(p: i64) -> i64 {
+    let left = load(p + 16);
+    store(p + 16, load(left + 24)); store(left + 24, p); fix(p); fix(left);
+    return left;
+}
+fn rotate_left(p: i64) -> i64 {
+    let right = load(p + 24);
+    store(p + 24, load(right + 16)); store(right + 16, p); fix(p); fix(right);
+    return right;
+}
+fn insert(p: i64, key: i64) -> i64 {
+    if p == 0 { let fresh = alloc(32); store(fresh, key); store(fresh + 8, 1); return fresh; }
+    if key < load(p) { store(p + 16, insert(load(p + 16), key)); }
+    else if key > load(p) { store(p + 24, insert(load(p + 24), key)); }
+    else { return p; }
+    fix(p);
+    let left = load(p + 16); let right = load(p + 24);
+    let balance = height(left) - height(right);
+    if balance > 1 {
+        if height(load(left + 16)) < height(load(left + 24)) { store(p + 16, rotate_left(left)); }
+        return rotate_right(p);
+    }
+    if balance < -1 {
+        if height(load(right + 24)) < height(load(right + 16)) { store(p + 24, rotate_right(right)); }
+        return rotate_left(p);
+    }
+    return p;
+}
+fn verify(p: i64, lo: i64, hi: i64) -> i64 {
+    if p == 0 { return 0; }
+    let key = load(p);
+    if key <= lo || key >= hi { abort(1); }
+    let left = load(p + 16); let right = load(p + 24);
+    let hl = height(left); let hr = height(right);
+    if hl - hr > 1 || hr - hl > 1 || height(p) != 1 + max(hl, hr) { abort(2); }
+    return key + verify(left, lo, key) + verify(right, key, hi);
+}
+fn main() {
+    let mut p = 0; let mut i = 1;
+    while i <= 100 { p = insert(p, i); i = i + 1; }
+    print(verify(p, 0, 101)); print(height(p));
+    p = 0; i = 1;
+    while i <= 100 { p = insert(p, (i * 37) % 101); i = i + 1; }
+    print(verify(p, 0, 101));
+}

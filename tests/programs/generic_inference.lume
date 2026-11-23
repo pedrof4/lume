@@ -1,0 +1,2 @@
+fn id<T>(x: T) -> T { return x; } struct Box<T> { value: T }
+fn main() { let s = id(Box("λ")); write(s.value); write("\n"); let n: i32 = id(19); print(as_i64(n)); }

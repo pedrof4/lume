@@ -1,0 +1,1 @@
+fn f(a: bool) -> i64 { if a { return 1; } } fn main() {}

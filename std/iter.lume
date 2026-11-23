@@ -1,0 +1,32 @@
+import "collections.lume";
+
+struct Iter<T> { source: Slice<T>, cursor: i64 }
+fn iter<T>(a: Slice<T>) -> Iter<T> { return Iter(a, 0); }
+fn next<T>(it: Iter<T>) -> Option<T> {
+    if it.cursor >= len(it.source) { return None; }
+    let at = it.cursor;
+    it.cursor = at + 1;
+    return Some(it.source[at]);
+}
+fn map<T,U>(it: Iter<T>, fill: U, f: fn(T) -> U) -> Vec<U> {
+    let out = vec_new(fill);
+    while it.cursor < len(it.source) {
+        vec_push(out, f(it.source[it.cursor])); it.cursor = it.cursor + 1;
+    }
+    return out;
+}
+fn filter<T>(it: Iter<T>, fill: T, f: fn(T) -> bool) -> Vec<T> {
+    let out = vec_new(fill);
+    while it.cursor < len(it.source) {
+        let x = it.source[it.cursor]; it.cursor = it.cursor + 1;
+        if f(x) { vec_push(out, x); }
+    }
+    return out;
+}
+fn fold<T,U>(it: Iter<T>, initial: U, f: fn(U,T) -> U) -> U {
+    let mut x = initial;
+    while it.cursor < len(it.source) {
+        x = f(x, it.source[it.cursor]); it.cursor = it.cursor + 1;
+    }
+    return x;
+}

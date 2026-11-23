@@ -1,0 +1,2 @@
+
+fn main() { print(63); print(64); print(-64); print(-65); print(16384); }

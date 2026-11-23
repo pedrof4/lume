@@ -1,0 +1,2 @@
+fn reverse(x: i64) -> i64 { let mut n = x; let mut v = 0; while n > 0 { v = v * 10 + n % 10; n = n / 10; } return v; }
+fn main() { print(reverse(12321)); }

@@ -1,0 +1,2 @@
+fn pow(a: i64, b: i64, m: i64) -> i64 { let mut base = a % m; let mut exp = b; let mut acc = 1 % m; while exp > 0 { if exp % 2 != 0 { acc = acc * base % m; } base = base * base % m; exp = exp / 2; } return acc; }
+fn main() { print(pow(17,0,18)); }

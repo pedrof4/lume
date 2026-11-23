@@ -1,0 +1,1 @@
+enum E { A, B(i64) } fn main() { let e=A; print(match e { A=>1 }); }

@@ -1,0 +1,2 @@
+
+fn main() { let p = alloc(24); store(p,17); store(p + 8,-10); store(p + 16,12); print(load(p) + load(p + 8) * load(p + 16)); }

@@ -1,0 +1,2 @@
+
+fn main() { print(codepoint('A')); print(codepoint('\n')); }

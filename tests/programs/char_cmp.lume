@@ -1,0 +1,2 @@
+
+fn main() { if 'a' < 'b' && 'a' != 'z' { print_char('Y'); write("\n"); } }
